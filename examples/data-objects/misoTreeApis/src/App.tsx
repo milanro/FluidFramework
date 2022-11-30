@@ -13,23 +13,17 @@ import {
     IForestSubscription,
     ITreeSubscriptionCursor,
     SchemaData,
-    SharedTree,
     TransactionResult,
     emptyField,
-    FieldKinds,
-    singleTextCursor,
     IDefaultEditBuilder,
     FieldKey,
-    checkRootSymbol,
-    checkSymbol,
-    michaelo,
-    misoSymbol,
-    rootFieldKeySymbol,
-    fieldSchema,
-    namedTreeSchema,
     ValueSchema,
-    moveToDetachedField,
+    NamedTreeSchema,
+    FieldSchema,
+    FieldKindIdentifier,
+    TreeSchemaIdentifier,
 } from "@fluid-internal/tree";
+import { FieldKinds } from "@fluid-internal/tree/dist/feature-libraries";
 import React, { useState, useEffect } from "react";
 import "./App.css";
 import { initializeWorkspace, Workspace } from "./tracking/workspace2";
@@ -38,35 +32,51 @@ const cellKey: FieldKey = brand("cell");
 const rowKey: FieldKey = brand("row");
 const cellValueKey: FieldKey = brand("cellValue");
 
-const oneCellValueSchema = namedTreeSchema({
+const oneCellValueSchema: NamedTreeSchema = {
     name: brand("OneCellValueSchema"),
     value: ValueSchema.Number,
+    localFields: new Map(),
+    globalFields: new Set(),
     extraLocalFields: emptyField,
-});
+    extraGlobalFields: false,
+};
 
-const oneCellSchema = namedTreeSchema({
+const oneCellSchema: NamedTreeSchema = {
     name: brand("OneCellSchema"),
-    localFields: {
+    localFields: convertLocalFields({
         [cellValueKey]: fieldSchema(FieldKinds.value, [
             oneCellValueSchema.name,
         ]),
-    },
+    }),
+    globalFields: new Set(),
     extraLocalFields: emptyField,
-});
-const oneRowSchema = namedTreeSchema({
+    extraGlobalFields: false,
+    value: ValueSchema.Nothing,
+};
+
+
+const oneRowSchema: NamedTreeSchema = {
     name: brand("OneRowSchema"),
-    localFields: {
+    localFields: convertLocalFields({
         [cellKey]: fieldSchema(FieldKinds.sequence, [oneCellSchema.name]),
-    },
+    }),
+    globalFields: new Set(),
     extraLocalFields: emptyField,
-});
-const oneTableSchema = namedTreeSchema({
+    extraGlobalFields: false,
+    value: ValueSchema.Nothing,
+};
+
+const oneTableSchema: NamedTreeSchema = {
     name: brand("OneTableSchema"),
-    localFields: {
+    localFields: convertLocalFields({
         [rowKey]: fieldSchema(FieldKinds.sequence, [oneRowSchema.name]),
-    },
+    }),
+    globalFields: new Set(),
     extraLocalFields: emptyField,
-});
+    extraGlobalFields: false,
+    value: ValueSchema.Nothing,
+};
+
 const tableSchema: SchemaData = {
     treeSchema: new Map([
         [oneTableSchema.name, oneTableSchema],
@@ -195,29 +205,10 @@ export default function App() {
             <h1>Shared Tree Table</h1>
             <button
                 onClick={() => {
-                    console.log(checkSymbol(misoSymbol));
-                    console.log(checkSymbol(workspace!.tree.getMisoSymbol()));
-                    console.log(checkRootSymbol(rootFieldKeySymbol));
-                    console.log(
-                        checkRootSymbol(workspace!.tree.getRootFieldKeySymbol())
-                    );
-                    console.log(michaelo);
-                    console.log(workspace!.tree.getMichaelo());
                     const tree = workspace!.tree;
                     const forest2 = tree.forest;
-                    tree.runTransaction((forest, editor) => {
-                        const writeCursor = singleTextCursor({
-                            type: brand("LonelyNode"),
-                        });
-                        const field = editor.sequenceField(
-                            undefined,
-                            tree.getRootFieldKeySymbol()
-                        );
-                        field.insert(0, writeCursor);
-                        return TransactionResult.Apply;
-                    });
                     const readCursor = forest2.allocateCursor();
-                    moveToDetachedField(forest2, readCursor);
+                    moveToDetachedField()
                     console.log("First Read");
                     console.log(readCursor.firstNode());
                     readCursor.free();
@@ -237,7 +228,7 @@ export default function App() {
                         const writeCursor = singleTextCursor(initialTable);
                         const rootField = editor.sequenceField(
                             undefined,
-                            workspace!.tree.getRootFieldKeySymbol()
+                            rootFieldKeySymbol
                         );
                         rootField.insert(0, writeCursor);
                         return TransactionResult.Apply;
@@ -664,3 +655,25 @@ function plus100AllOneByOne(workspace: Workspace) {
 function reRender(setIsRender) {
     setIsRender(2000000000 * Math.random());
 }
+
+export function fieldSchema(
+    kind: { identifier: FieldKindIdentifier; },
+    types?: Iterable<TreeSchemaIdentifier>,
+): FieldSchema {
+    return {
+        kind: kind.identifier,
+        types: types === undefined ? undefined : new Set(types),
+    };
+}
+
+function convertLocalFields(local: { [key: string]: FieldSchema; }) {
+    const localFields = new Map();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const key in local) {
+        if (Object.prototype.hasOwnProperty.call(local, key)) {
+            localFields.set(brand(key), local[key]);
+        }
+    }
+    return localFields;
+}
+

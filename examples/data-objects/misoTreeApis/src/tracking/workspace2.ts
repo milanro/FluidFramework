@@ -1,12 +1,24 @@
-import { SharedTree, ISharedTree } from "@fluid-internal/tree";
+import { ISharedTree, SharedTreeFactory } from "@fluid-internal/tree";
 import { InsecureTokenProvider } from "@fluidframework/test-client-utils";
 import {
     AzureClient,
 } from "@fluidframework/azure-client";
+import { IChannelFactory } from "@fluidframework/datastore-definitions";
+
+
+class MySharedTree {
+    public static getFactory(): IChannelFactory {
+        return new SharedTreeFactory();
+    }
+
+    onDisconnect() {
+        console.warn("disconnected");
+    }
+}
 
 export async function initializeWorkspace(containerId: string | undefined): Promise<Workspace> {
     const createNew = containerId === undefined;
-    const treeClass: any = SharedTree;
+    const treeClass: any = MySharedTree;
     const containerSchema = {
         initialObjects: { tree: treeClass },
     };
