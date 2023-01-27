@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/no-bad-blocks */
 /* eslint-disable jsdoc/check-indentation */
 /* eslint-disable unicorn/no-array-for-each */
 /* eslint-disable @typescript-eslint/restrict-plus-operands */
@@ -32,6 +33,7 @@ import {
     rootFieldKey,
     getField,
     NamedTreeSchema,
+    Brand,
 } from "@fluid-internal/tree";
 import { fieldSchema } from "@fluid-internal/tree/dist/core";
 import { FullSchemaPolicy, singleTextCursor } from "@fluid-internal/tree/dist/feature-libraries";
@@ -305,7 +307,7 @@ export default function App() {
             <button
                 onClick={() => {
                     play(workspace!);
-                    schemaGenerator(Table.prototype);
+                    // schemaGenerator(Table.prototype);
                 }}
             >
                 PLAY
@@ -319,12 +321,12 @@ export default function App() {
         </div>
     );
 }
-
+/*
 const RANGE_KEY = "range";
 const DATA_PROPERTY_KEY = "dataProperty";
 const FIELD_LIST_METADATA_KEY = Symbol("fieldList");
 
-/*
+
 const cellType = Type.Object({ cellValue: Type.Number() });
 const rowType = Type.Object({ cell: Type.Array(cellType) });
 const tableType = Type.Object({ row: Type.Array(rowType) });
@@ -341,7 +343,7 @@ type TableEditable = Table & EditableTree;
 
 
 
-
+/*
 
 
 class CellProp {
@@ -382,10 +384,10 @@ type MyTypeArray = MyType[];
 
 
 
+*/
 
 
-
-
+/*
 
 function Field(multiplicity: string, clazz?: any) {
     const classProto = clazz ? clazz.prototype : undefined;
@@ -400,15 +402,13 @@ function Range(from: number, to: number) {
     return Reflect.metadata(RANGE_KEY, { from, to, applyRange });
   }
 
-  /**
-   *  This method throws exception if the given value is not within the given range.
-   */
+
   function applyRange(value: number, from: number, to: number) {
     if (value < from || value > to) {
       throw new Error(`Value ${value} is outside of range ${from}..${to}`);
     }
   }
-/*
+
   function getRange(target: any, propertyKey: string) {
     return Reflect.getMetadata(rangeKey, target, propertyKey);
   }
@@ -427,7 +427,7 @@ function play(workspace: Workspace) {
     const value = cellValue;
     console.log(value);
 }
-
+/*
 let intend = 0;
 
 function genIntend() {
@@ -458,14 +458,15 @@ function schemaGenerator(typePrototype: any) {
         intend--;
     }
 }
+*/
 
-/*
 export type CellValue = Brand<number, "miso.CellValue"> & EditableTree;
 export type Cell = EditableTree &
     Brand<{ cellValue: CellValue; }, "miso.Cell-1.0.0">;
 export type Row = EditableTree & Brand<{ cell: Cell[]; }, "miso.Row-1.0.0">;
 export type Table = EditableTree & Brand<{ row: Row[]; }, "miso.Table-1.0.0">;
-*/
+export type TableEditable = Table;
+
 
 function addRow(workspace: Workspace) {
     const tree = workspace.tree;
