@@ -1,73 +1,69 @@
-# TestNamespace
+## TestNamespace
 
 Test Namespace
 
-## Signature {#testnamespace-signature}
+### Signature {#testnamespace-signature}
 
 ```typescript
-export declare namespace TestNamespace 
+export declare namespace TestNamespace
 ```
 
-## Remarks {#testnamespace-remarks}
+### Remarks {#testnamespace-remarks}
 
 Here are some remarks about the namespace
 
-## Examples {#testnamespace-examples}
+### Examples {#testnamespace-examples}
 
-### Example 1 {#testnamespace-example1}
-
-Example 1
+#### Example: TypeScript Example {#testnamespace-example1}
 
 ```typescript
 const foo = bar;
 ```
 
-### Example 2 {#testnamespace-example2}
-
-Example 2
+#### Example: JavaScript Example {#testnamespace-example2}
 
 ```javascript
 const bar = foo
 ```
 
-## Interfaces
+### Interfaces
 
-|  Interface | Description |
-|  --- | --- |
-|  [TestInterface](docs/simple-suite-test/testnamespace-testinterface-interface) | Test interface |
+| Interface | Description |
+| --- | --- |
+| [TestInterface](docs/simple-suite-test/testnamespace-testinterface-interface) | Test interface |
 
-## Classes
+### Classes
 
-|  Class | Description |
-|  --- | --- |
-|  [TestClass](docs/simple-suite-test/testnamespace-testclass-class) | Test class |
+| Class | Description |
+| --- | --- |
+| [TestClass](docs/simple-suite-test/testnamespace-testclass-class) | Test class |
 
-## Enumerations
+### Enumerations
 
-|  Enum | Description |
-|  --- | --- |
-|  [TestEnum](docs/simple-suite-test/testnamespace-testenum-enum) | Test Enum |
+| Enum | Description |
+| --- | --- |
+| [TestEnum](docs/simple-suite-test/testnamespace-testenum-enum) | Test Enum |
 
-## Types
+### Types
 
-|  TypeAlias | Description |
-|  --- | --- |
-|  [TestTypeAlias](docs/simple-suite-test/testnamespace-testtypealias-typealias) | Test Type-Alias |
+| TypeAlias | Description |
+| --- | --- |
+| [TestTypeAlias](docs/simple-suite-test/testnamespace-testtypealias-typealias) | Test Type-Alias |
 
-## Functions
+### Functions
 
-|  Function | Return Type | Description |
-|  --- | --- | --- |
-|  [testFunction(testParameter)](docs/simple-suite-test/testnamespace-testfunction-function) | number | Test function |
+| Function | Return Type | Description |
+| --- | --- | --- |
+| [testFunction(testParameter)](docs/simple-suite-test/testnamespace-testfunction-function) | number | Test function |
 
-## Variables
+### Variables
 
-|  Variable | Modifiers | Description |
-|  --- | --- | --- |
-|  [TestConst](docs/simple-suite-test/testnamespace-testconst-variable) | <code>readonly</code> | Test Constant |
+| Variable | Modifiers | Description |
+| --- | --- | --- |
+| [TestConst](docs/simple-suite-test/testnamespace-testconst-variable) | `readonly` | Test Constant |
 
-## Namespaces
+### Namespaces
 
-|  Namespace | Description |
-|  --- | --- |
-|  [TestSubNamespace](docs/simple-suite-test/testnamespace-testsubnamespace-namespace) | Test sub-namespace |
+| Namespace | Description |
+| --- | --- |
+| [TestSubNamespace](docs/simple-suite-test/testnamespace-testsubnamespace-namespace) | Test sub-namespace |

@@ -8,10 +8,10 @@ import { ConnectionMode } from '@fluidframework/protocol-definitions';
 import { IClient } from '@fluidframework/protocol-definitions';
 import { IClientConfiguration } from '@fluidframework/protocol-definitions';
 import { ICreateBlobResponse } from '@fluidframework/protocol-definitions';
-import { IDisposable } from '@fluidframework/common-definitions';
+import { IDisposable } from '@fluidframework/core-interfaces';
 import { IDocumentMessage } from '@fluidframework/protocol-definitions';
-import { IErrorEvent } from '@fluidframework/common-definitions';
-import { IEventProvider } from '@fluidframework/common-definitions';
+import { IErrorEvent } from '@fluidframework/core-interfaces';
+import { IEventProvider } from '@fluidframework/core-interfaces';
 import { INack } from '@fluidframework/protocol-definitions';
 import { IRequest } from '@fluidframework/core-interfaces';
 import { ISequencedDocumentMessage } from '@fluidframework/protocol-definitions';
@@ -20,18 +20,19 @@ import { ISignalMessage } from '@fluidframework/protocol-definitions';
 import { ISnapshotTree } from '@fluidframework/protocol-definitions';
 import { ISummaryHandle } from '@fluidframework/protocol-definitions';
 import { ISummaryTree } from '@fluidframework/protocol-definitions';
-import { ITelemetryBaseLogger } from '@fluidframework/common-definitions';
+import { ITelemetryBaseLogger } from '@fluidframework/core-interfaces';
 import { ITokenClaims } from '@fluidframework/protocol-definitions';
 import { IVersion } from '@fluidframework/protocol-definitions';
 
 // @public (undocumented)
 export type DriverError = IThrottlingWarning | IGenericNetworkError | IAuthorizationError | ILocationRedirectionError | IDriverBasicError;
 
-// @public
+// @public @deprecated
 export enum DriverErrorType {
     authorizationError = "authorizationError",
     deltaStreamConnectionForbidden = "deltaStreamConnectionForbidden",
     fetchFailure = "fetchFailure",
+    fetchTokenError = "fetchTokenError",
     fileIsLocked = "fileIsLocked",
     fileNotFoundOrAccessDeniedError = "fileNotFoundOrAccessDeniedError",
     fileOverwrittenInStorage = "fileOverwrittenInStorage",
@@ -47,6 +48,30 @@ export enum DriverErrorType {
     usageError = "usageError",
     writeError = "writeError"
 }
+
+// @public
+export const DriverErrorTypes: {
+    readonly genericNetworkError: "genericNetworkError";
+    readonly authorizationError: "authorizationError";
+    readonly fileNotFoundOrAccessDeniedError: "fileNotFoundOrAccessDeniedError";
+    readonly offlineError: "offlineError";
+    readonly unsupportedClientProtocolVersion: "unsupportedClientProtocolVersion";
+    readonly writeError: "writeError";
+    readonly fetchFailure: "fetchFailure";
+    readonly fetchTokenError: "fetchTokenError";
+    readonly incorrectServerResponse: "incorrectServerResponse";
+    readonly fileOverwrittenInStorage: "fileOverwrittenInStorage";
+    readonly deltaStreamConnectionForbidden: "deltaStreamConnectionForbidden";
+    readonly locationRedirection: "locationRedirection";
+    readonly fluidInvalidSchema: "fluidInvalidSchema";
+    readonly fileIsLocked: "fileIsLocked";
+    readonly genericError: "genericError";
+    readonly throttlingError: "throttlingError";
+    readonly usageError: "usageError";
+};
+
+// @public (undocumented)
+export type DriverErrorTypes = typeof DriverErrorTypes[keyof typeof DriverErrorTypes];
 
 // @public
 export enum DriverHeader {
@@ -160,12 +185,12 @@ export interface IDocumentService {
 export interface IDocumentServiceFactory {
     createContainer(createNewSummary: ISummaryTree | undefined, createNewResolvedUrl: IResolvedUrl, logger?: ITelemetryBaseLogger, clientIsSummarizer?: boolean): Promise<IDocumentService>;
     createDocumentService(resolvedUrl: IResolvedUrl, logger?: ITelemetryBaseLogger, clientIsSummarizer?: boolean): Promise<IDocumentService>;
-    protocolName: string;
 }
 
 // @public (undocumented)
 export interface IDocumentServicePolicies {
     readonly storageOnly?: boolean;
+    readonly summarizeProtocolTree?: boolean;
 }
 
 // @public
@@ -191,7 +216,7 @@ export interface IDocumentStorageServicePolicies {
 // @public
 export interface IDriverBasicError extends IDriverErrorBase {
     // (undocumented)
-    readonly errorType: DriverErrorType.genericError | DriverErrorType.fileNotFoundOrAccessDeniedError | DriverErrorType.offlineError | DriverErrorType.unsupportedClientProtocolVersion | DriverErrorType.writeError | DriverErrorType.fetchFailure | DriverErrorType.incorrectServerResponse | DriverErrorType.fileOverwrittenInStorage | DriverErrorType.fluidInvalidSchema | DriverErrorType.usageError | DriverErrorType.fileIsLocked;
+    readonly errorType: DriverErrorType.genericError | DriverErrorType.fileNotFoundOrAccessDeniedError | DriverErrorType.offlineError | DriverErrorType.unsupportedClientProtocolVersion | DriverErrorType.writeError | DriverErrorType.fetchFailure | DriverErrorType.fetchTokenError | DriverErrorType.incorrectServerResponse | DriverErrorType.fileOverwrittenInStorage | DriverErrorType.fluidInvalidSchema | DriverErrorType.usageError | DriverErrorType.fileIsLocked;
     // (undocumented)
     readonly statusCode?: number;
 }
@@ -199,6 +224,7 @@ export interface IDriverBasicError extends IDriverErrorBase {
 // @public
 export interface IDriverErrorBase {
     canRetry: boolean;
+    endpointReached?: boolean;
     readonly errorType: DriverErrorType;
     readonly message: string;
     online?: string;
@@ -210,23 +236,6 @@ export interface IDriverHeader {
     [DriverHeader.summarizingClient]: boolean;
     // (undocumented)
     [DriverHeader.createNew]: any;
-}
-
-// @public (undocumented)
-export interface IFluidResolvedUrl extends IResolvedUrlBase {
-    // (undocumented)
-    endpoints: {
-        [name: string]: string;
-    };
-    id: string;
-    // (undocumented)
-    tokens: {
-        [name: string]: string;
-    };
-    // (undocumented)
-    type: "fluid";
-    // (undocumented)
-    url: string;
 }
 
 // @public (undocumented)
@@ -246,12 +255,20 @@ export interface ILocationRedirectionError extends IDriverErrorBase {
 }
 
 // @public (undocumented)
-export type IResolvedUrl = IWebResolvedUrl | IFluidResolvedUrl;
-
-// @public (undocumented)
-export interface IResolvedUrlBase {
+export interface IResolvedUrl {
     // (undocumented)
-    type: string;
+    endpoints: {
+        [name: string]: string;
+    };
+    id: string;
+    // (undocumented)
+    tokens: {
+        [name: string]: string;
+    };
+    // (undocumented)
+    type: "fluid";
+    // (undocumented)
+    url: string;
 }
 
 // @public
@@ -289,14 +306,6 @@ export interface IUrlResolver {
     getAbsoluteUrl(resolvedUrl: IResolvedUrl, relativeUrl: string, packageInfoSource?: IContainerPackageInfo): Promise<string>;
     // (undocumented)
     resolve(request: IRequest): Promise<IResolvedUrl | undefined>;
-}
-
-// @public (undocumented)
-export interface IWebResolvedUrl extends IResolvedUrlBase {
-    // (undocumented)
-    data: string;
-    // (undocumented)
-    type: "web";
 }
 
 // @public (undocumented)

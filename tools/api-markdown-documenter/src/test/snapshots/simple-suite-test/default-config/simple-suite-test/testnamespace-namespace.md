@@ -1,3 +1,5 @@
+<!-- Front Matter! -->
+
 # TestNamespace
 
 [Packages](./) &gt; [simple-suite-test](./simple-suite-test) &gt; [TestNamespace](./simple-suite-test/testnamespace-namespace)
@@ -7,7 +9,7 @@ Test Namespace
 ## Signature {#testnamespace-signature}
 
 ```typescript
-export declare namespace TestNamespace 
+export declare namespace TestNamespace
 ```
 
 ## Remarks {#testnamespace-remarks}
@@ -16,17 +18,13 @@ Here are some remarks about the namespace
 
 ## Examples {#testnamespace-examples}
 
-### Example 1 {#testnamespace-example1}
-
-Example 1
+### Example: TypeScript Example {#testnamespace-example1}
 
 ```typescript
 const foo = bar;
 ```
 
-### Example 2 {#testnamespace-example2}
-
-Example 2
+### Example: JavaScript Example {#testnamespace-example2}
 
 ```javascript
 const bar = foo
@@ -34,45 +32,45 @@ const bar = foo
 
 ## Interfaces
 
-|  Interface | Description |
-|  --- | --- |
-|  [TestInterface](./simple-suite-test/testnamespace/testinterface-interface) | Test interface |
+| Interface | Description |
+| --- | --- |
+| [TestInterface](./simple-suite-test/testnamespace/testinterface-interface) | Test interface |
 
 ## Classes
 
-|  Class | Description |
-|  --- | --- |
-|  [TestClass](./simple-suite-test/testnamespace/testclass-class) | Test class |
+| Class | Description |
+| --- | --- |
+| [TestClass](./simple-suite-test/testnamespace/testclass-class) | Test class |
 
 ## Enumerations
 
-|  Enum | Description |
-|  --- | --- |
-|  [TestEnum](./simple-suite-test/testnamespace-namespace#testenum-enum) | Test Enum |
+| Enum | Description |
+| --- | --- |
+| [TestEnum](./simple-suite-test/testnamespace-namespace#testenum-enum) | Test Enum |
 
 ## Types
 
-|  TypeAlias | Description |
-|  --- | --- |
-|  [TestTypeAlias](./simple-suite-test/testnamespace-namespace#testtypealias-typealias) | Test Type-Alias |
+| TypeAlias | Description |
+| --- | --- |
+| [TestTypeAlias](./simple-suite-test/testnamespace-namespace#testtypealias-typealias) | Test Type-Alias |
 
 ## Functions
 
-|  Function | Return Type | Description |
-|  --- | --- | --- |
-|  [testFunction(testParameter)](./simple-suite-test/testnamespace-namespace#testfunction-function) | number | Test function |
+| Function | Return Type | Description |
+| --- | --- | --- |
+| [testFunction(testParameter)](./simple-suite-test/testnamespace-namespace#testfunction-function) | number | Test function |
 
 ## Variables
 
-|  Variable | Modifiers | Description |
-|  --- | --- | --- |
-|  [TestConst](./simple-suite-test/testnamespace-namespace#testconst-variable) | <code>readonly</code> | Test Constant |
+| Variable | Modifiers | Description |
+| --- | --- | --- |
+| [TestConst](./simple-suite-test/testnamespace-namespace#testconst-variable) | `readonly` | Test Constant |
 
 ## Namespaces
 
-|  Namespace | Description |
-|  --- | --- |
-|  [TestSubNamespace](./simple-suite-test/testnamespace/testsubnamespace-namespace) | Test sub-namespace |
+| Namespace | Description |
+| --- | --- |
+| [TestSubNamespace](./simple-suite-test/testnamespace/testsubnamespace-namespace) | Test sub-namespace |
 
 ## Enumeration Details
 
@@ -83,17 +81,15 @@ Test Enum
 #### Signature {#testenum-signature}
 
 ```typescript
-enum TestEnum 
+enum TestEnum
 ```
 
 #### Flags
 
-|  Flag | Description |
-|  --- | --- |
-|  [TestEnumValue1](./simple-suite-test/testnamespace-namespace#testenum-testenumvalue1-enummember) | Test enum value 1 |
-|  [TestEnumValue2](./simple-suite-test/testnamespace-namespace#testenum-testenumvalue2-enummember) | Test enum value 2 |
-
-#### FlagDetails
+| Flag | Description |
+| --- | --- |
+| [TestEnumValue1](./simple-suite-test/testnamespace-namespace#testenum-testenumvalue1-enummember) | Test enum value 1 |
+| [TestEnumValue2](./simple-suite-test/testnamespace-namespace#testenum-testenumvalue2-enummember) | Test enum value 2 |
 
 ##### TestEnumValue1 {#testenum-testenumvalue1-enummember}
 
@@ -141,15 +137,15 @@ function testFunction(testParameter: number): number;
 
 #### Parameters {#testfunction-parameters}
 
-|  Parameter | Type | Description |
-|  --- | --- | --- |
-|  testParameter | number |  |
+| Parameter | Type | Description |
+| --- | --- | --- |
+| testParameter | number |  |
 
 #### Returns {#testfunction-returns}
 
 A number
 
-<b>Return type:</b> number
+**Return type:** number
 
 #### Throws {#testfunction-throws}
 

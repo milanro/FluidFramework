@@ -3,10 +3,11 @@
  * Licensed under the MIT License.
  */
 
-import { stringToBuffer, Uint8ArrayToString } from "@fluidframework/common-utils";
+import { stringToBuffer, Uint8ArrayToString } from "@fluid-internal/client-utils";
 import {
 	IDocumentStorageService,
 	IDocumentStorageServicePolicies,
+	IResolvedUrl,
 	ISummaryContext,
 } from "@fluidframework/driver-definitions";
 import {
@@ -16,9 +17,16 @@ import {
 	ISummaryTree,
 	IVersion,
 } from "@fluidframework/protocol-definitions";
-import { buildHierarchy } from "@fluidframework/protocol-base";
-import { GitManager, ISummaryUploadManager, SummaryTreeUploadManager } from "@fluidframework/server-services-client";
+import { buildGitTreeHierarchy } from "@fluidframework/protocol-base";
+import {
+	GitManager,
+	ISummaryUploadManager,
+	SummaryTreeUploadManager,
+} from "@fluidframework/server-services-client";
+import { ILocalDeltaConnectionServer } from "@fluidframework/server-local-server";
+import { createDocument } from "./localCreateDocument";
 
+const minTTLInSeconds = 24 * 60 * 60; // Same TTL as ODSP
 export class LocalDocumentStorageService implements IDocumentStorageService {
 	// The values of this cache is useless. We only need the keys. So we are always putting
 	// empty strings as values.
@@ -33,6 +41,8 @@ export class LocalDocumentStorageService implements IDocumentStorageService {
 		private readonly id: string,
 		private readonly manager: GitManager,
 		public readonly policies: IDocumentStorageServicePolicies,
+		private readonly localDeltaConnectionServer?: ILocalDeltaConnectionServer,
+		private readonly resolvedUrl?: IResolvedUrl,
 	) {
 		this.summaryTreeUploadManager = new SummaryTreeUploadManager(
 			manager,
@@ -63,7 +73,7 @@ export class LocalDocumentStorageService implements IDocumentStorageService {
 		}
 
 		const rawTree = await this.manager.getTree(requestVersion.treeId);
-		const tree = buildHierarchy(rawTree, this.blobsShaCache, true);
+		const tree = buildGitTreeHierarchy(rawTree, this.blobsShaCache, true);
 		return tree;
 	}
 
@@ -74,7 +84,20 @@ export class LocalDocumentStorageService implements IDocumentStorageService {
 		return bufferContent;
 	}
 
-	public async uploadSummaryWithContext(summary: ISummaryTree, context: ISummaryContext): Promise<string> {
+	public async uploadSummaryWithContext(
+		summary: ISummaryTree,
+		context: ISummaryContext,
+	): Promise<string> {
+		if (context.referenceSequenceNumber === 0) {
+			if (this.localDeltaConnectionServer === undefined || this.resolvedUrl === undefined) {
+				throw new Error(
+					"Insufficient constructor parameters. An ILocalDeltaConnectionServer and IResolvedUrl required",
+				);
+			}
+			await createDocument(this.localDeltaConnectionServer, this.resolvedUrl, summary);
+			const version = await this.getVersions(this.id, 1);
+			return version[0].id;
+		}
 		return this.summaryTreeUploadManager.writeSummaryTree(
 			summary,
 			context.ackHandle ?? "",
@@ -84,24 +107,24 @@ export class LocalDocumentStorageService implements IDocumentStorageService {
 
 	public async createBlob(file: ArrayBufferLike): Promise<ICreateBlobResponse> {
 		const uint8ArrayFile = new Uint8Array(file);
-		return this.manager.createBlob(
-			Uint8ArrayToString(
-				uint8ArrayFile, "base64"),
-			"base64").then((r) => ({ id: r.sha, url: r.url }));
+		return this.manager
+			.createBlob(Uint8ArrayToString(uint8ArrayFile, "base64"), "base64")
+			.then((r) => ({ id: r.sha, url: r.url, minTTLInSeconds }));
 	}
 
 	public async downloadSummary(handle: ISummaryHandle): Promise<ISummaryTree> {
 		throw new Error("NOT IMPLEMENTED!");
 	}
 
-	private async getPreviousFullSnapshot(parentHandle: string): Promise<ISnapshotTreeEx | null | undefined> {
+	private async getPreviousFullSnapshot(
+		parentHandle: string,
+	): Promise<ISnapshotTreeEx | null | undefined> {
 		return parentHandle
-			? this.getVersions(parentHandle, 1)
-				.then(async (versions) => {
+			? this.getVersions(parentHandle, 1).then(async (versions) => {
 					// Clear the cache as the getSnapshotTree call will fill the cache.
 					this.blobsShaCache.clear();
 					return this.getSnapshotTree(versions[0]);
-				})
+			  })
 			: undefined;
 	}
 }

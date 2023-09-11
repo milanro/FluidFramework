@@ -7,87 +7,89 @@
 
 import { EventEmitter } from "events";
 
-import { assert } from "@fluidframework/common-utils";
+import { assert } from "@fluidframework/core-utils";
 import { ISequencedDocumentMessage, MessageType } from "@fluidframework/protocol-definitions";
 import {
-    IChannelAttributes,
-    IFluidDataStoreRuntime,
-    IChannelStorageService,
-    IChannelFactory,
+	IChannelAttributes,
+	IFluidDataStoreRuntime,
+	IChannelStorageService,
+	IChannelFactory,
 } from "@fluidframework/datastore-definitions";
 import { ISummaryTreeWithStats } from "@fluidframework/runtime-definitions";
 import { readAndParse } from "@fluidframework/driver-utils";
-import { createSingleBlobSummary, IFluidSerializer, SharedObject } from "@fluidframework/shared-object-base";
+import {
+	createSingleBlobSummary,
+	IFluidSerializer,
+	SharedObject,
+} from "@fluidframework/shared-object-base";
 import { PactMapFactory } from "./pactMapFactory";
-import { IPactMap, IPactMapEvents } from "./interfaces";
+import { IAcceptedPact, IPactMap, IPactMapEvents } from "./interfaces";
 
 /**
  * The accepted pact information, if any.
  */
-interface IAcceptedPact<T> {
-    /**
-     * The accepted value of the given type or undefined (typically in case of delete).
-     */
-    value: T | undefined;
+interface IAcceptedPactInternal<T> {
+	/**
+	 * The accepted value of the given type or undefined (typically in case of delete).
+	 */
+	value: T | undefined;
 
-    /**
-     * The sequence number when the value was accepted, which will normally coincide with one of three possibilities:
-     * - The sequence number of the "accept" op from the final client we expected signoff from
-     * - The sequence number of the ClientLeave of the final client we expected signoff from
-     * - The sequence number of the "set" op, if there were no expected signoffs (i.e. only the submitting client
-     * was connected when the op was sequenced)
-     *
-     * For values set in detached state, it will be 0.
-     */
-    sequenceNumber: number;
+	/**
+	 * The sequence number when the value was accepted, which will normally coincide with one of two possibilities:
+	 * - The sequence number of the "accept" op from the final client we expected signoff from
+	 * - The sequence number of the ClientLeave of the final client we expected signoff from
+	 *
+	 * For values set in detached state, it will be 0.
+	 */
+	sequenceNumber: number;
 }
 
 /**
  * The pending pact information, if any.
  */
 interface IPendingPact<T> {
-    /**
-     * The pending value of the given type or undefined (typically in case of delete).
-     */
-    value: T | undefined;
-    /**
-     * The list of clientIds that we expect "accept" ops from.  Clients are also removed from this list if they
-     * disconnect without accepting.  When this list empties, the pending value transitions to accepted.
-     */
-    expectedSignoffs: string[];
+	/**
+	 * The pending value of the given type or undefined (typically in case of delete).
+	 */
+	value: T | undefined;
+	/**
+	 * The list of clientIds that we expect "accept" ops from.  Clients are also removed from this list if they
+	 * disconnect without accepting.  When this list empties, the pending value transitions to accepted.
+	 */
+	expectedSignoffs: string[];
 }
 
 /**
  * Internal format of the values stored in the PactMap.
  */
 type Pact<T> =
-    { accepted: IAcceptedPact<T>; pending: undefined; }
-    | { accepted: undefined; pending: IPendingPact<T>; }
-    | { accepted: IAcceptedPact<T>; pending: IPendingPact<T>; };
+	| { accepted: IAcceptedPactInternal<T>; pending: undefined }
+	| { accepted: undefined; pending: IPendingPact<T> }
+	| { accepted: IAcceptedPactInternal<T>; pending: IPendingPact<T> };
 
 /**
  * PactMap operation formats
  */
 interface IPactMapSetOperation<T> {
-    type: "set";
-    key: string;
-    value: T | undefined;
+	type: "set";
+	key: string;
+	value: T | undefined;
 
-    /**
-     * A "set" is only valid if it is made with knowledge of the most-recent accepted proposal - its reference
-     * sequence number is greater than or equal to the sequence number when that prior value was accepted.
-     *
-     * However, we can't trust the built-in referenceSequenceNumber of the op because of resubmit on reconnect,
-     * which will update the referenceSequenceNumber on our behalf.
-     *
-     * Instead we need to separately stamp the real reference sequence number on the op itself.
-     */
-    refSeq: number;
+	/**
+	 * A "set" is only valid if it is made with knowledge of the most-recent accepted proposal - its reference
+	 * sequence number is greater than or equal to the sequence number when that prior value was accepted.
+	 *
+	 * However, we can't trust the built-in referenceSequenceNumber of the op because of resubmit on reconnect,
+	 * which will update the referenceSequenceNumber on our behalf.
+	 *
+	 * Instead we need to separately stamp the real reference sequence number on the op itself.
+	 */
+	refSeq: number;
 }
 
 interface IPactMapAcceptOperation {
-    type: "accept";
-    key: string;
+	type: "accept";
+	key: string;
 }
 
 type IPactMapOperation<T> = IPactMapSetOperation<T> | IPactMapAcceptOperation;
@@ -153,341 +155,362 @@ const snapshotFileName = "header";
  * ```
  */
 export class PactMap<T = unknown> extends SharedObject<IPactMapEvents> implements IPactMap<T> {
-    /**
-     * Create a new PactMap
-     *
-     * @param runtime - data store runtime the new PactMap belongs to
-     * @param id - optional name of the PactMap
-     * @returns newly created PactMap (but not attached yet)
-     */
-    public static create(runtime: IFluidDataStoreRuntime, id?: string): PactMap {
-        return runtime.createChannel(id, PactMapFactory.Type) as PactMap;
-    }
+	/**
+	 * Create a new PactMap
+	 *
+	 * @param runtime - data store runtime the new PactMap belongs to
+	 * @param id - optional name of the PactMap
+	 * @returns newly created PactMap (but not attached yet)
+	 */
+	public static create(runtime: IFluidDataStoreRuntime, id?: string): PactMap {
+		return runtime.createChannel(id, PactMapFactory.Type) as PactMap;
+	}
 
-    /**
-     * Get a factory for PactMap to register with the data store.
-     *
-     * @returns a factory that creates and loads PactMaps
-     */
-    public static getFactory(): IChannelFactory {
-        return new PactMapFactory();
-    }
+	/**
+	 * Get a factory for PactMap to register with the data store.
+	 *
+	 * @returns a factory that creates and loads PactMaps
+	 */
+	public static getFactory(): IChannelFactory {
+		return new PactMapFactory();
+	}
 
-    private readonly values: Map<string, Pact<T>> = new Map();
+	private readonly values: Map<string, Pact<T>> = new Map();
 
-    private readonly incomingOp: EventEmitter = new EventEmitter();
+	private readonly incomingOp: EventEmitter = new EventEmitter();
 
-    /**
-     * Constructs a new PactMap. If the object is non-local an id and service interfaces will
-     * be provided
-     *
-     * @param runtime - data store runtime the PactMap belongs to
-     * @param id - optional name of the PactMap
-     */
-    public constructor(id: string, runtime: IFluidDataStoreRuntime, attributes: IChannelAttributes) {
-        super(id, runtime, attributes, "fluid_pactMap_");
+	/**
+	 * Constructs a new PactMap. If the object is non-local an id and service interfaces will
+	 * be provided
+	 *
+	 * @param runtime - data store runtime the PactMap belongs to
+	 * @param id - optional name of the PactMap
+	 */
+	public constructor(
+		id: string,
+		runtime: IFluidDataStoreRuntime,
+		attributes: IChannelAttributes,
+	) {
+		super(id, runtime, attributes, "fluid_pactMap_");
 
-        this.incomingOp.on("set", this.handleIncomingSet);
-        this.incomingOp.on("accept", this.handleIncomingAccept);
+		this.incomingOp.on("set", this.handleIncomingSet);
+		this.incomingOp.on("accept", this.handleIncomingAccept);
 
-        this.runtime.getQuorum().on("removeMember", this.handleQuorumRemoveMember);
-    }
+		this.runtime.getQuorum().on("removeMember", this.handleQuorumRemoveMember);
+	}
 
-    /**
-     * {@inheritDoc IPactMap.get}
-     */
-    public get(key: string): T | undefined {
-        return this.values.get(key)?.accepted?.value;
-    }
+	/**
+	 * {@inheritDoc IPactMap.get}
+	 */
+	public get(key: string): T | undefined {
+		return this.values.get(key)?.accepted?.value;
+	}
 
-    /**
-     * {@inheritDoc IPactMap.isPending}
-     */
-    public isPending(key: string): boolean {
-        return this.values.get(key)?.pending !== undefined;
-    }
+	/**
+	 * {@inheritDoc IPactMap.getWithDetails}
+	 */
+	public getWithDetails(key: string): IAcceptedPact<T> | undefined {
+		// Note: We return type `IAcceptedPact` instead of `IAcceptedPactInternal` since we may want to diverge
+		// the interfaces in the future.
+		const acceptedPact = this.values.get(key)?.accepted;
+		if (acceptedPact === undefined) {
+			return undefined;
+		}
+		return {
+			value: acceptedPact.value,
+			acceptedSequenceNumber: acceptedPact.sequenceNumber,
+		};
+	}
 
-    /**
-     * {@inheritDoc IPactMap.getPending}
-     */
-    public getPending(key: string): T | undefined {
-        return this.values.get(key)?.pending?.value;
-    }
+	/**
+	 * {@inheritDoc IPactMap.isPending}
+	 */
+	public isPending(key: string): boolean {
+		return this.values.get(key)?.pending !== undefined;
+	}
 
-    /**
-     * {@inheritDoc IPactMap.set}
-     */
-    public set(key: string, value: T | undefined): void {
-        const currentValue = this.values.get(key);
-        // Early-exit if we can't submit a valid proposal (there's already a pending proposal)
-        if (currentValue?.pending !== undefined) {
-            return;
-        }
+	/**
+	 * {@inheritDoc IPactMap.getPending}
+	 */
+	public getPending(key: string): T | undefined {
+		return this.values.get(key)?.pending?.value;
+	}
 
-        // If not attached, we basically pretend we got an ack immediately.
-        if (!this.isAttached()) {
-            // Queueing as a microtask to permit callers to complete their callstacks before the result of the set
-            // takes effect.  This more closely resembles the pattern in the attached state, where the ack will not
-            // be received synchronously.
-            queueMicrotask(() => {
-                this.handleIncomingSet(
-                    key,
-                    value,
-                    0 /* refSeq */,
-                    0 /* setSequenceNumber */,
-                );
-            });
-            return;
-        }
+	/**
+	 * {@inheritDoc IPactMap.set}
+	 */
+	public set(key: string, value: T | undefined): void {
+		const currentValue = this.values.get(key);
+		// Early-exit if we can't submit a valid proposal (there's already a pending proposal)
+		if (currentValue?.pending !== undefined) {
+			return;
+		}
 
-        const setOp: IPactMapSetOperation<T> = {
-            type: "set",
-            key,
-            value,
-            refSeq: this.runtime.deltaManager.lastSequenceNumber,
-        };
+		// If not attached, we basically pretend we got an ack immediately.
+		if (!this.isAttached()) {
+			// Queueing as a microtask to permit callers to complete their callstacks before the result of the set
+			// takes effect.  This more closely resembles the pattern in the attached state, where the ack will not
+			// be received synchronously.
+			queueMicrotask(() => {
+				this.handleIncomingSet(key, value, 0 /* refSeq */, 0 /* setSequenceNumber */);
+			});
+			return;
+		}
 
-        this.submitLocalMessage(setOp);
-    }
+		const setOp: IPactMapSetOperation<T> = {
+			type: "set",
+			key,
+			value,
+			refSeq: this.runtime.deltaManager.lastSequenceNumber,
+		};
 
-    /**
-     * {@inheritDoc IPactMap.delete}
-     */
-    public delete(key: string): void {
-        const currentValue = this.values.get(key);
-        // Early-exit if:
-        if (
-            // there's nothing to delete
-            currentValue === undefined
-            // if something is pending (and so our proposal won't be valid)
-            || currentValue.pending !== undefined
-            // or if the accepted value is undefined which is equivalent to already being deleted
-            || currentValue.accepted.value === undefined
-        ) {
-            return;
-        }
+		this.submitLocalMessage(setOp);
+	}
 
-        this.set(key, undefined);
-    }
+	/**
+	 * {@inheritDoc IPactMap.delete}
+	 */
+	public delete(key: string): void {
+		const currentValue = this.values.get(key);
+		// Early-exit if:
+		if (
+			// there's nothing to delete
+			currentValue === undefined ||
+			// if something is pending (and so our proposal won't be valid)
+			currentValue.pending !== undefined ||
+			// or if the accepted value is undefined which is equivalent to already being deleted
+			currentValue.accepted.value === undefined
+		) {
+			return;
+		}
 
-    /**
-     * Get a point-in-time list of clients who must sign off on values coming in for them to move from "pending" to
-     * "accepted" state.  This list is finalized for a value at the moment it goes pending (i.e. if more clients
-     * join later, they are not added to the list of signoffs).
-     * @returns The list of clientIds for clients who must sign off to accept the incoming pending value
-     */
-    private getSignoffClients(): string[] {
-        // If detached, we don't need anyone to sign off.  Otherwise, we need all currently connected clients.
-        return this.isAttached()
-            ? [...this.runtime.getQuorum().getMembers().keys()]
-            : [];
-    }
+		this.set(key, undefined);
+	}
 
-    private readonly handleIncomingSet = (
-        key: string,
-        value: T | undefined,
-        refSeq: number,
-        setSequenceNumber: number,
-    ): void => {
-        const currentValue = this.values.get(key);
-        // We use a consensus-like approach here, so a proposal is valid if the value is unset or if there is no
-        // pending change and it was made with knowledge of the most recently accepted value.  We'll drop invalid
-        // proposals on the ground.
-        const proposalValid =
-            currentValue === undefined
-            || (currentValue.pending === undefined && currentValue.accepted.sequenceNumber <= refSeq);
-        if (!proposalValid) {
-            return;
-        }
+	/**
+	 * Get a point-in-time list of clients who must sign off on values coming in for them to move from "pending" to
+	 * "accepted" state.  This list is finalized for a value at the moment it goes pending (i.e. if more clients
+	 * join later, they are not added to the list of signoffs).
+	 * @returns The list of clientIds for clients who must sign off to accept the incoming pending value
+	 */
+	private getSignoffClients(): string[] {
+		// If detached, we don't need anyone to sign off.  Otherwise, we need all currently connected clients.
+		return this.isAttached() ? [...this.runtime.getQuorum().getMembers().keys()] : [];
+	}
 
-        const accepted = currentValue?.accepted;
+	private readonly handleIncomingSet = (
+		key: string,
+		value: T | undefined,
+		refSeq: number,
+		setSequenceNumber: number,
+	): void => {
+		const currentValue = this.values.get(key);
+		// We use a consensus-like approach here, so a proposal is valid if the value is unset or if there is no
+		// pending change and it was made with knowledge of the most recently accepted value.  We'll drop invalid
+		// proposals on the ground.
+		const proposalValid =
+			currentValue === undefined ||
+			(currentValue.pending === undefined && currentValue.accepted.sequenceNumber <= refSeq);
+		if (!proposalValid) {
+			return;
+		}
 
-        // We expect signoffs from all connected clients at the time the set was sequenced (including the client who
-        // sent the set).
-        const expectedSignoffs = this.getSignoffClients();
+		const accepted = currentValue?.accepted;
 
-        const newPact: Pact<T> = {
-            accepted,
-            pending: {
-                value,
-                expectedSignoffs,
-            },
-        };
+		// We expect signoffs from all connected clients at the time the set was sequenced (including the client who
+		// sent the set).
+		const expectedSignoffs = this.getSignoffClients();
 
-        this.values.set(key, newPact);
+		const newPact: Pact<T> = {
+			accepted,
+			pending: {
+				value,
+				expectedSignoffs,
+			},
+		};
 
-        this.emit("pending", key);
+		this.values.set(key, newPact);
 
-        if (expectedSignoffs.length === 0) {
-            // At least the submitting client should be amongst the expectedSignoffs, but keeping this check around
-            // as extra protection and in case we bring back the "submitting client implicitly accepts" optimization.
-            this.values.set(key, {
-                accepted: { value, sequenceNumber: setSequenceNumber },
-                pending: undefined,
-            });
-            this.emit("accepted", key);
-        } else if (this.runtime.clientId !== undefined && expectedSignoffs.includes(this.runtime.clientId)) {
-            // Emit an accept upon a new key entering pending state if our accept is expected.
-            const acceptOp: IPactMapAcceptOperation = {
-                type: "accept",
-                key,
-            };
-            this.submitLocalMessage(acceptOp);
-        }
-    };
+		this.emit("pending", key);
 
-    private readonly handleIncomingAccept = (
-        key: string,
-        clientId: string,
-        sequenceNumber: number,
-    ): void => {
-        const pending = this.values.get(key)?.pending;
-        // We don't resubmit accepts on reconnect so this should only run for expected accepts.
-        assert(pending !== undefined, 0x2f8 /* Unexpected accept op, nothing pending */);
-        assert(
-            pending.expectedSignoffs.includes(clientId),
-            0x2f9 /* Unexpected accept op, client not in expectedSignoffs */);
+		if (expectedSignoffs.length === 0) {
+			// At least the submitting client should be amongst the expectedSignoffs, but keeping this check around
+			// as extra protection and in case we bring back the "submitting client implicitly accepts" optimization.
+			this.values.set(key, {
+				accepted: { value, sequenceNumber: setSequenceNumber },
+				pending: undefined,
+			});
+			this.emit("accepted", key);
+		} else if (
+			this.runtime.clientId !== undefined &&
+			expectedSignoffs.includes(this.runtime.clientId)
+		) {
+			// Emit an accept upon a new key entering pending state if our accept is expected.
+			const acceptOp: IPactMapAcceptOperation = {
+				type: "accept",
+				key,
+			};
+			this.submitLocalMessage(acceptOp);
+		}
+	};
 
-        // Remove the client from the expected signoffs
-        pending.expectedSignoffs = pending.expectedSignoffs.filter(
-            (expectedClientId) => expectedClientId !== clientId,
-        );
+	private readonly handleIncomingAccept = (
+		key: string,
+		clientId: string,
+		sequenceNumber: number,
+	): void => {
+		const pending = this.values.get(key)?.pending;
+		// We don't resubmit accepts on reconnect so this should only run for expected accepts.
+		assert(pending !== undefined, 0x2f8 /* Unexpected accept op, nothing pending */);
+		assert(
+			pending.expectedSignoffs.includes(clientId),
+			0x2f9 /* Unexpected accept op, client not in expectedSignoffs */,
+		);
 
-        if (pending.expectedSignoffs.length === 0) {
-            // The pending value has settled
-            this.values.set(key, {
-                accepted: { value: pending.value, sequenceNumber },
-                pending: undefined,
-            });
-            this.emit("accepted", key);
-        }
-    };
+		// Remove the client from the expected signoffs
+		pending.expectedSignoffs = pending.expectedSignoffs.filter(
+			(expectedClientId) => expectedClientId !== clientId,
+		);
 
-    private readonly handleQuorumRemoveMember = (clientId: string): void => {
-        for (const [key, { pending }] of this.values) {
-            if (pending !== undefined) {
-                pending.expectedSignoffs = pending.expectedSignoffs.filter(
-                    (expectedClientId) => expectedClientId !== clientId,
-                );
+		if (pending.expectedSignoffs.length === 0) {
+			// The pending value has settled
+			this.values.set(key, {
+				accepted: { value: pending.value, sequenceNumber },
+				pending: undefined,
+			});
+			this.emit("accepted", key);
+		}
+	};
 
-                if (pending.expectedSignoffs.length === 0) {
-                    // The pending value has settled
-                    this.values.set(key, {
-                        accepted: {
-                            value: pending.value,
-                            // The sequence number of the ClientLeave message.
-                            sequenceNumber: this.runtime.deltaManager.lastSequenceNumber,
-                        },
-                        pending: undefined,
-                    });
-                    this.emit("accepted", key);
-                }
-            }
-        }
-    };
+	private readonly handleQuorumRemoveMember = (clientId: string): void => {
+		for (const [key, { pending }] of this.values) {
+			if (pending !== undefined) {
+				pending.expectedSignoffs = pending.expectedSignoffs.filter(
+					(expectedClientId) => expectedClientId !== clientId,
+				);
 
-    /**
-     * Create a summary for the PactMap
-     *
-     * @returns the summary of the current state of the PactMap
-     * @internal
-     */
-    protected summarizeCore(serializer: IFluidSerializer): ISummaryTreeWithStats {
-        const allEntries = [...this.values.entries()];
-        // Filter out items that are ineffectual
-        const summaryEntries = allEntries.filter(([, pact]) => {
-            return (
-                // Items have an effect if they are still pending, have a real value, or some client may try to
-                // reference state before the value was accepted.  Otherwise they can be dropped.
-                pact.pending !== undefined
-                || pact.accepted.value !== undefined
-                || pact.accepted.sequenceNumber > this.runtime.deltaManager.minimumSequenceNumber
-            );
-        });
-        return createSingleBlobSummary(snapshotFileName, JSON.stringify(summaryEntries));
-    }
+				if (pending.expectedSignoffs.length === 0) {
+					// The pending value has settled
+					const clientLeaveSequenceNumber = this.runtime.deltaManager.lastSequenceNumber;
+					this.values.set(key, {
+						accepted: {
+							value: pending.value,
+							// The sequence number of the ClientLeave message.
+							sequenceNumber: clientLeaveSequenceNumber,
+						},
+						pending: undefined,
+					});
+					this.emit("accepted", key);
+				}
+			}
+		}
+	};
 
-    /**
-     * {@inheritDoc @fluidframework/shared-object-base#SharedObject.loadCore}
-     * @internal
-     */
-    protected async loadCore(storage: IChannelStorageService): Promise<void> {
-        const content = await readAndParse<[string, Pact<T>][]>(storage, snapshotFileName);
-        for (const [key, value] of content) {
-            this.values.set(key, value);
-        }
-    }
+	/**
+	 * Create a summary for the PactMap
+	 *
+	 * @returns the summary of the current state of the PactMap
+	 * @internal
+	 */
+	protected summarizeCore(serializer: IFluidSerializer): ISummaryTreeWithStats {
+		const allEntries = [...this.values.entries()];
+		return createSingleBlobSummary(snapshotFileName, JSON.stringify(allEntries));
+	}
 
-    /**
-     * {@inheritDoc @fluidframework/shared-object-base#SharedObjectCore.initializeLocalCore}
-     * @internal
-     */
-    protected initializeLocalCore(): void { }
+	/**
+	 * {@inheritDoc @fluidframework/shared-object-base#SharedObject.loadCore}
+	 * @internal
+	 */
+	protected async loadCore(storage: IChannelStorageService): Promise<void> {
+		const content = await readAndParse<[string, Pact<T>][]>(storage, snapshotFileName);
+		for (const [key, value] of content) {
+			this.values.set(key, value);
+		}
+	}
 
-    /**
-     * {@inheritDoc @fluidframework/shared-object-base#SharedObjectCore.onDisconnect}
-     * @internal
-     */
-    protected onDisconnect(): void { }
+	/**
+	 * {@inheritDoc @fluidframework/shared-object-base#SharedObjectCore.initializeLocalCore}
+	 * @internal
+	 */
+	protected initializeLocalCore(): void {}
 
-    /**
-     * {@inheritDoc @fluidframework/shared-object-base#SharedObjectCore.reSubmitCore}
-     * @internal
-     */
-    protected reSubmitCore(content: unknown, localOpMetadata: unknown): void {
-        const pactMapOp = content as IPactMapOperation<T>;
-        // Filter out accept messages - if we're coming back from a disconnect, our acceptance is never required
-        // because we're implicitly removed from the list of expected accepts.
-        if (pactMapOp.type === "accept") {
-            return;
-        }
+	/**
+	 * {@inheritDoc @fluidframework/shared-object-base#SharedObjectCore.onDisconnect}
+	 * @internal
+	 */
+	protected onDisconnect(): void {}
 
-        // Filter out set messages that have no chance of being accepted because there's another value pending
-        // or another value was accepted while we were disconnected.
-        const currentValue = this.values.get(pactMapOp.key);
-        if (
-            currentValue !== undefined
-            && (
-                currentValue.pending !== undefined
-                || pactMapOp.refSeq < currentValue.accepted?.sequenceNumber
-            )
-        ) {
-            return;
-        }
+	/**
+	 * {@inheritDoc @fluidframework/shared-object-base#SharedObjectCore.reSubmitCore}
+	 * @internal
+	 */
+	protected reSubmitCore(content: unknown, localOpMetadata: unknown): void {
+		const pactMapOp = content as IPactMapOperation<T>;
+		// Filter out accept messages - if we're coming back from a disconnect, our acceptance is never required
+		// because we're implicitly removed from the list of expected accepts.
+		if (pactMapOp.type === "accept") {
+			return;
+		}
 
-        // Otherwise we can resubmit
-        this.submitLocalMessage(pactMapOp, localOpMetadata);
-    }
+		// Filter out set messages that have no chance of being accepted because there's another value pending
+		// or another value was accepted while we were disconnected.
+		const currentValue = this.values.get(pactMapOp.key);
+		if (
+			currentValue !== undefined &&
+			(currentValue.pending !== undefined ||
+				pactMapOp.refSeq < currentValue.accepted?.sequenceNumber)
+		) {
+			return;
+		}
 
-    /**
-     * Process a PactMap operation
-     *
-     * @param message - the message to prepare
-     * @param local - whether the message was sent by the local client
-     * @param localOpMetadata - For local client messages, this is the metadata that was submitted with the message.
-     * For messages from a remote client, this will be undefined.
-     * @internal
-     */
-    protected processCore(message: ISequencedDocumentMessage, local: boolean, localOpMetadata: unknown): void {
-        if (message.type === MessageType.Operation) {
-            const op = message.contents as IPactMapOperation<T>;
+		// Otherwise we can resubmit
+		this.submitLocalMessage(pactMapOp, localOpMetadata);
+	}
 
-            switch (op.type) {
-                case "set":
-                    this.incomingOp.emit("set", op.key, op.value, op.refSeq, message.sequenceNumber);
-                    break;
+	/**
+	 * Process a PactMap operation
+	 *
+	 * @param message - the message to prepare
+	 * @param local - whether the message was sent by the local client
+	 * @param localOpMetadata - For local client messages, this is the metadata that was submitted with the message.
+	 * For messages from a remote client, this will be undefined.
+	 * @internal
+	 */
+	protected processCore(
+		message: ISequencedDocumentMessage,
+		local: boolean,
+		localOpMetadata: unknown,
+	): void {
+		if (message.type === MessageType.Operation) {
+			const op = message.contents as IPactMapOperation<T>;
 
-                case "accept":
-                    this.incomingOp.emit("accept", op.key, message.clientId, message.sequenceNumber);
-                    break;
+			switch (op.type) {
+				case "set":
+					this.incomingOp.emit(
+						"set",
+						op.key,
+						op.value,
+						op.refSeq,
+						message.sequenceNumber,
+					);
+					break;
 
-                default:
-                    throw new Error("Unknown operation");
-            }
-        }
-    }
+				case "accept":
+					this.incomingOp.emit(
+						"accept",
+						op.key,
+						message.clientId,
+						message.sequenceNumber,
+					);
+					break;
 
-    public applyStashedOp(): void {
-        throw new Error("not implemented");
-    }
+				default:
+					throw new Error("Unknown operation");
+			}
+		}
+	}
+
+	public applyStashedOp(): void {
+		throw new Error("not implemented");
+	}
 }

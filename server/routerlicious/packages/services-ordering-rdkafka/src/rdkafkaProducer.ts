@@ -13,6 +13,7 @@ import {
 	IContextErrorData,
 } from "@fluidframework/server-services-core";
 import { NetworkError } from "@fluidframework/server-services-client";
+import { Lumberjack, getLumberBaseProperties } from "@fluidframework/server-services-telemetry";
 import { Deferred } from "@fluidframework/common-utils";
 
 import { IKafkaBaseOptions, IKafkaEndpoints, RdkafkaBase } from "./rdkafkaBase";
@@ -44,6 +45,7 @@ export interface IKafkaProducerOptions extends Partial<IKafkaBaseOptions> {
 
 	pollIntervalMs: number;
 	maxMessageSize: number;
+	eventHubConnString?: string;
 }
 
 /**
@@ -72,7 +74,8 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 		endpoints: IKafkaEndpoints,
 		clientId: string,
 		topic: string,
-		options?: Partial<IKafkaProducerOptions>) {
+		options?: Partial<IKafkaProducerOptions>,
+	) {
 		super(endpoints, clientId, topic, options);
 
 		this.defaultRestartOnKafkaErrorCodes = [
@@ -122,8 +125,8 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 			...this.sslOptions,
 		};
 
-		const producer: kafkaTypes.Producer = this.connectingProducer =
-			new this.kafka.HighLevelProducer(options, this.producerOptions.topicConfig);
+		const producer: kafkaTypes.Producer = (this.connectingProducer =
+			new this.kafka.HighLevelProducer(options, this.producerOptions.topicConfig));
 
 		producer.on("ready", () => {
 			this.connectedProducer = producer;
@@ -155,8 +158,13 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 		});
 
 		producer.on("event.error", (error) => {
-			// eslint-disable-next-line @typescript-eslint/no-floating-promises
-			this.handleError(producer, error);
+			this.handleError(producer, error).catch((handleErrorError) => {
+				Lumberjack.error(
+					"Error encountered when handling producer event.error",
+					undefined,
+					handleErrorError,
+				);
+			});
 		});
 
 		producer.on("event.throttle", (event) => {
@@ -233,7 +241,12 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 	 * Sends the provided message to Kafka
 	 */
 	// eslint-disable-next-line @typescript-eslint/promise-function-async
-	public send(messages: object[], tenantId: string, documentId: string, partitionId?: number): Promise<any> {
+	public send(
+		messages: object[],
+		tenantId: string,
+		documentId: string,
+		partitionId?: number,
+	): Promise<any> {
 		// createa boxcar for these messages
 		const boxcar = new PendingBoxcar(tenantId, documentId);
 		boxcar.messages = messages;
@@ -294,6 +307,9 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 	 * Produce the boxcars to Kafka
 	 */
 	private sendBoxcar(boxcar: IPendingBoxcar): void {
+		const lumberjackProperties = {
+			...getLumberBaseProperties(boxcar.documentId, boxcar.tenantId),
+		};
 		const boxcarMessage: IBoxcarMessage = {
 			contents: boxcar.messages,
 			documentId: boxcar.documentId,
@@ -333,7 +349,7 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 				boxcar.partitionId ?? null, // partition id or null for consistent random for keyed messages
 				message, // message
 				boxcar.documentId, // key
-				undefined, // timestamp
+				Date.now(), // timestamp
 				(ex: any, offset?: number) => {
 					this.inflightPromises.delete(boxcar.deferred);
 
@@ -346,15 +362,26 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 
 						boxcar.deferred.reject(err);
 
-						// eslint-disable-next-line @typescript-eslint/no-floating-promises
 						this.handleError(producer, err, {
 							restart: true,
 							tenantId: boxcar.tenantId,
 							documentId: boxcar.documentId,
+						}).catch((error) => {
+							Lumberjack.error(
+								"Error encountered when handling producer error in sendBoxcar()",
+								{ ...lumberjackProperties },
+								error,
+							);
 						});
 					} else {
 						boxcar.deferred.resolve();
-						this.emit("produced", boxcarMessage, offset, message.length, boxcar.partitionId);
+						this.emit(
+							"produced",
+							boxcarMessage,
+							offset,
+							message.length,
+							boxcar.partitionId,
+						);
 					}
 				},
 			);
@@ -369,11 +396,16 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 			// produce can throw if the outgoing message queue is full
 			boxcar.deferred.reject(err);
 
-			// eslint-disable-next-line @typescript-eslint/no-floating-promises
 			this.handleError(producer, err, {
 				restart: true,
 				tenantId: boxcar.tenantId,
 				documentId: boxcar.documentId,
+			}).catch((error) => {
+				Lumberjack.error(
+					"Error encountered when handling producer error in sendBoxcar() catch block",
+					{ ...lumberjackProperties },
+					error,
+				);
 			});
 		}
 	}
@@ -383,12 +415,17 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 	 * It may cause a reconnection is the producer that had the error
 	 * is currently 'valid' (being tracked as connecting or connected).
 	 */
-	private async handleError(producer: kafkaTypes.Producer, error: any, errorData?: IContextErrorData) {
+	private async handleError(
+		producer: kafkaTypes.Producer,
+		error: any,
+		errorData?: IContextErrorData,
+	) {
 		this.error(error, errorData);
 
 		if (!this.producerOptions.reconnectOnNonFatalErrors) {
 			// we should not reconnect on non fatal errors
-			const isFatalError = RdkafkaBase.isObject(error) &&
+			const isFatalError =
+				RdkafkaBase.isObject(error) &&
 				(error as kafkaTypes.LibrdKafkaError).code === this.kafka.CODES.ERRORS.ERR__FATAL;
 			if (!isFatalError) {
 				// it's not fatal!
@@ -415,9 +452,12 @@ export class RdkafkaProducer extends RdkafkaBase implements IProducer {
 	 * Check if an exception is a "Broker: Message size too large" error
 	 */
 	private isMessageSizeTooLargeError(ex: any): boolean {
-		return RdkafkaBase.isObject(ex) &&
-			((ex as kafkaTypes.LibrdKafkaError).code === this.kafka.CODES.ERRORS.ERR_MSG_SIZE_TOO_LARGE ||
-				(ex as Error).message.toLowerCase().includes("message size too large"));
+		return (
+			RdkafkaBase.isObject(ex) &&
+			((ex as kafkaTypes.LibrdKafkaError).code ===
+				this.kafka.CODES.ERRORS.ERR_MSG_SIZE_TOO_LARGE ||
+				(ex as Error).message.toLowerCase().includes("message size too large"))
+		);
 	}
 
 	/**

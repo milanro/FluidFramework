@@ -1,7 +1,7 @@
-# TestModule
+## TestModule
 
-## Variables
+### Variables
 
-|  Variable | Modifiers | Description |
-|  --- | --- | --- |
-|  [foo](docs/simple-suite-test/testmodule-foo-variable) | <code>readonly</code> | Test constant in module. |
+| Variable | Modifiers | Description |
+| --- | --- | --- |
+| [foo](docs/simple-suite-test/testmodule-foo-variable) | `readonly` | Test constant in module. |

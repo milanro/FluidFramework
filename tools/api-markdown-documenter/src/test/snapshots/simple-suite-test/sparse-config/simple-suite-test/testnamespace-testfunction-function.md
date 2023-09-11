@@ -1,25 +1,25 @@
-# testFunction
+## testFunction
 
 Test function
 
-## Signature {#testfunction-signature}
+### Signature {#testfunction-signature}
 
 ```typescript
 function testFunction(testParameter: number): number;
 ```
 
-## Parameters {#testfunction-parameters}
+### Parameters {#testfunction-parameters}
 
-|  Parameter | Type | Description |
-|  --- | --- | --- |
-|  testParameter | number | 📝 |
+| Parameter | Type | Description |
+| --- | --- | --- |
+| testParameter | number |  |
 
-## Returns {#testfunction-returns}
+### Returns {#testfunction-returns}
 
 A number
 
-<b>Return type:</b> number
+**Return type:** number
 
-## Throws {#testfunction-throws}
+### Throws {#testfunction-throws}
 
 An Error

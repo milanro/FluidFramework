@@ -4,418 +4,280 @@
  */
 
 import * as path from "path";
-import { existsSync, mkdirSync, readFileSync } from "fs";
 import { strict as assert } from "assert";
 import {
-    BaseFuzzTestState,
-    createFuzzDescribe,
-    createWeightedGenerator,
-    Generator,
-    generatorFromArray,
-    interleave,
-    makeRandom,
-    performFuzzActions,
-    Reducer,
-    SaveInfo,
-    take,
+	combineReducersAsync as combineReducers,
+	createWeightedAsyncGenerator as createWeightedGenerator,
+	AsyncGenerator as Generator,
+	makeRandom,
+	AsyncReducer as Reducer,
+	takeAsync as take,
 } from "@fluid-internal/stochastic-test-utils";
-import {
-    MockFluidDataStoreRuntime,
-    MockStorage,
-    MockContainerRuntimeFactoryForReconnection,
-    MockContainerRuntimeForReconnection,
-} from "@fluidframework/test-runtime-utils";
-import { IChannelServices } from "@fluidframework/datastore-definitions";
-import { TaskManager } from "../taskManager";
+import { createDDSFuzzSuite, DDSFuzzModel, DDSFuzzTestState } from "@fluid-internal/test-dds-utils";
+import { FlushMode } from "@fluidframework/runtime-definitions";
 import { TaskManagerFactory } from "../taskManagerFactory";
+import { ITaskManager } from "../interfaces";
 
-interface Client {
-    taskManager: TaskManager;
-    containerRuntime: MockContainerRuntimeForReconnection;
+type FuzzTestState = DDSFuzzTestState<TaskManagerFactory>;
+
+interface TaskOperation {
+	/** The Id of the task that the operation applies to. */
+	taskId: string;
 }
 
-interface FuzzTestState extends BaseFuzzTestState {
-    containerRuntimeFactory: MockContainerRuntimeFactoryForReconnection;
-    clients: Client[];
-    taskIdPool: string[];
+interface Volunteer extends TaskOperation {
+	type: "volunteer";
 }
 
-interface ClientSpec {
-    clientId: string;
-    taskManagerName: string;
+interface Abandon extends TaskOperation {
+	type: "abandon";
 }
 
-interface Volunteer extends ClientSpec {
-    type: "volunteer";
-    taskId: string;
+interface Subscribe extends TaskOperation {
+	type: "subscribe";
 }
 
-interface Abandon extends ClientSpec {
-    type: "abandon";
-    taskId: string;
+interface Complete extends TaskOperation {
+	type: "complete";
 }
 
-interface Subscribe extends ClientSpec {
-    type: "subscribe";
-    taskId: string;
-}
-
-interface Complete extends ClientSpec {
-    type: "complete";
-    taskId: string;
-}
-
-interface ChangeConnectionState extends ClientSpec {
-    type: "changeConnectionState";
-    connected: boolean;
-}
-
-interface Synchronize {
-    type: "synchronize";
-}
-
-type TaskOperation = Volunteer | Abandon | Subscribe | Complete;
-
-type ClientOperation = TaskOperation | ChangeConnectionState;
-
-type Operation = ClientOperation | Synchronize;
-
+type Operation = Volunteer | Abandon | Subscribe | Complete;
 
 interface OperationGenerationConfig {
-    /**
-     * Number of task ids to be generated
-     */
-    taskPoolSize?: number;
-    /**
-     * Length of taskId strings
-     */
-    taskStringLength?: number;
-    /**
-     * Number of ops in between each synchronization/validation of the TaskManagers
-     */
-    validateInterval?: number;
-    /**
-     * Number of tests to generate
-     */
-    testCount?: number;
-    /**
-     * Number of operations to perform in each test
-     */
-    operations?: number;
+	/**
+	 * Number of task ids to be generated
+	 */
+	taskPoolSize?: number;
+	/**
+	 * Length of taskId strings
+	 */
+	taskStringLength?: number;
+	/**
+	 * Number of ops in between each synchronization/validation of the TaskManagers
+	 */
+	validateInterval?: number;
+	/**
+	 * Number of tests to generate
+	 */
+	testCount?: number;
+	/**
+	 * Number of operations to perform in each test
+	 */
+	operations?: number;
 }
 
 const defaultOptions: Required<OperationGenerationConfig> = {
-    taskPoolSize: 3,
-    taskStringLength: 5,
-    validateInterval: 10,
-    testCount: 10,
-    operations: 100,
+	taskPoolSize: 3,
+	taskStringLength: 5,
+	validateInterval: 10,
+	testCount: 10,
+	operations: 100,
 };
 
-function makeOperationGenerator(optionsParam?: OperationGenerationConfig): Generator<Operation, FuzzTestState> {
-    const options = { ...defaultOptions, ...(optionsParam ?? {}) };
-    type ClientOpState = FuzzTestState & { taskManager: TaskManager; taskId: string; clientId: string; };
+function makeOperationGenerator(
+	optionsParam?: OperationGenerationConfig,
+): Generator<Operation, FuzzTestState> {
+	const options = { ...defaultOptions, ...(optionsParam ?? {}) };
+	type OpSelectionState = FuzzTestState & {
+		taskId: string;
+	};
 
-    function volunteer(state: ClientOpState): Volunteer {
-        return {
-            type: "volunteer",
-            taskId: state.taskId,
-            clientId: state.clientId,
-            taskManagerName: state.taskManager.id,
-        };
-    }
+	const taskIdPoolRandom = makeRandom(0);
+	const dedupe = <T>(arr: T[]): T[] => Array.from(new Set(arr));
+	const taskIdPool = dedupe(
+		Array.from({ length: options.taskPoolSize }, () =>
+			taskIdPoolRandom.string(defaultOptions.taskStringLength),
+		),
+	);
 
-    function abandon(state: ClientOpState): Abandon {
-        return {
-            type: "abandon",
-            taskId: state.taskId,
-            clientId: state.clientId,
-            taskManagerName: state.taskManager.id,
-        };
-    }
+	async function volunteer(state: OpSelectionState): Promise<Volunteer> {
+		return {
+			type: "volunteer",
+			taskId: state.taskId,
+		};
+	}
 
-    function subscribe(state: ClientOpState): Subscribe {
-        return {
-            type: "subscribe",
-            taskId: state.taskId,
-            clientId: state.clientId,
-            taskManagerName: state.taskManager.id,
-        };
-    }
+	async function abandon(state: OpSelectionState): Promise<Abandon> {
+		return {
+			type: "abandon",
+			taskId: state.taskId,
+		};
+	}
 
-    function complete(state: ClientOpState): Complete {
-        return {
-            type: "complete",
-            taskId: state.taskId,
-            clientId: state.clientId,
-            taskManagerName: state.taskManager.id,
-        };
-    }
+	async function subscribe(state: OpSelectionState): Promise<Subscribe> {
+		return {
+			type: "subscribe",
+			taskId: state.taskId,
+		};
+	}
 
-    function changeConnectionState(state: ClientOpState): ChangeConnectionState {
-        const clientId = state.clientId;
-        const containerRuntime = findRuntime(state.clients, clientId);
-        return {
-            type: "changeConnectionState",
-            clientId,
-            // No-ops aren't interesting; always make this flip the connection state.
-            connected: containerRuntime?.connected ? false : true,
-            taskManagerName: state.taskManager.id,
-        };
-    }
+	async function complete(state: OpSelectionState): Promise<Complete> {
+		return {
+			type: "complete",
+			taskId: state.taskId,
+		};
+	}
 
-    const isConnected = ({ taskManager }: ClientOpState): boolean => taskManager.connected;
-    const isQueued = ({ taskManager, taskId }: ClientOpState): boolean => taskManager.queued(taskId);
-    const isAssigned = ({ taskManager, taskId }: ClientOpState): boolean => taskManager.assigned(taskId);
+	const canVolunteer = ({ channel }: OpSelectionState): boolean => channel.canVolunteer();
+	const isQueued = ({ channel, taskId }: OpSelectionState): boolean => channel.queued(taskId);
+	const isAssigned = ({ channel, taskId }: OpSelectionState): boolean => channel.assigned(taskId);
 
-    const clientBaseOperationGenerator = createWeightedGenerator<Operation, ClientOpState>([
-        [volunteer, 1, isConnected],
-        [abandon, 1, isQueued],
-        [subscribe, 1],
-        [complete, 1, isAssigned],
-        [changeConnectionState, 1],
-    ]);
+	const clientBaseOperationGenerator = createWeightedGenerator<Operation, OpSelectionState>([
+		[volunteer, 1, canVolunteer],
+		[abandon, 1, isQueued],
+		[subscribe, 1],
+		[complete, 1, isAssigned],
+	]);
 
-    const clientOperationGenerator = (state: FuzzTestState) => {
-        const client = state.random.pick(state.clients);
-        return clientBaseOperationGenerator({
-            ...state,
-            taskManager: client.taskManager,
-            taskId: state.random.pick(state.taskIdPool),
-            clientId: client.containerRuntime.clientId,
-        });
-    };
-
-
-    return interleave(
-        clientOperationGenerator,
-        () => ({ type: "synchronize" }),
-        options.validateInterval,
-    );
+	return async (state: FuzzTestState) =>
+		clientBaseOperationGenerator({
+			...state,
+			taskId: state.random.pick(taskIdPool),
+		});
 }
 
 interface LoggingInfo {
-    /** ids of the Task Managers to track over time */
-    taskManagerNames: string[];
-    /** ids of tasks to track over time */
-    taskId: string;
+	/** ids of the Task Managers to track over time */
+	taskManagerNames: string[];
+	/** ids of tasks to track over time */
+	taskId: string;
 }
-
-function findTaskManager(clients: Client[], taskManagerName: string): TaskManager {
-    const { taskManager } = clients.find((client) => {
-        return client.taskManager.id === taskManagerName;
-    }) ?? {};
-    return taskManager as TaskManager;
-};
-
-function findRuntime(clients: Client[], taskManagerName: string): MockContainerRuntimeForReconnection {
-    const { containerRuntime } = clients.find((client) => {
-        return client.taskManager.id === taskManagerName;
-    }) ?? {};
-    return containerRuntime as MockContainerRuntimeForReconnection;
-};
 
 function logCurrentState(state: FuzzTestState, loggingInfo: LoggingInfo): void {
-    for (const client of state.clients) {
-        const taskManager = client.taskManager;
-        assert(taskManager);
-        if (loggingInfo.taskManagerNames.includes(taskManager.id)) {
-            console.log(`TaskManager ${taskManager.id} (Connected: ${taskManager.connected}):`);
-            console.log((taskManager as any).taskQueues.get(loggingInfo.taskId));
-            console.log("\n");
-        }
-    }
+	for (const client of state.clients) {
+		const taskManager = client.channel;
+		assert(taskManager);
+		if (loggingInfo.taskManagerNames.includes(client.containerRuntime.clientId)) {
+			console.log(
+				`TaskManager ${taskManager.id} (CanVolunteer: ${taskManager.canVolunteer()}):`,
+			);
+			console.log((taskManager as any).taskQueues.get(loggingInfo.taskId));
+			console.log("\n");
+		}
+	}
 }
 
-function assertEqualQueues(queue1: Map<string, string[]>, queue2: Map<string, string[]>) {
-    assert(queue1.size === queue2.size, "The number of tasks queues are not the same");
-    for (const [key, val] of queue1) {
-        const testVal = queue2.get(key);
-        if (testVal === undefined) {
-            assert(val === undefined, "Task queues are not both undefined");
-            return;
-        }
-        assert(testVal.length === val.length, "Task queues are not the same size");
-        if (testVal.length > 0) {
-            testVal.forEach((task: string, index: number) => {
-                assert(task === val[index], `Task queues are not identical`);
-            });
-        }
-    }
+function makeReducer(loggingInfo?: LoggingInfo): Reducer<Operation, FuzzTestState> {
+	const withLogging =
+		<T>(baseReducer: Reducer<T, FuzzTestState>): Reducer<T, FuzzTestState> =>
+		async (state, operation) => {
+			if (loggingInfo !== undefined && (operation as any).taskId === loggingInfo.taskId) {
+				logCurrentState(state, loggingInfo);
+				console.log("-".repeat(20));
+				console.log("Next operation:", JSON.stringify(operation, undefined, 4));
+			}
+			await baseReducer(state, operation);
+		};
+
+	const reducer = combineReducers<Operation, FuzzTestState>({
+		volunteer: async ({ channel }, { taskId }) => {
+			// Note: this is fire-and-forget as `volunteerForTask` resolves/rejects its returned
+			// promise based on server responses, which will occur on later operations (and
+			// processing those operations will raise the error directly)
+			channel.volunteerForTask(taskId).catch((e: Error) => {
+				// We expect an error to be thrown if we are disconnected while volunteering
+				const expectedErrors = [
+					"Disconnected before acquiring task assignment",
+					"Abandoned before acquiring task assignment",
+				];
+				if (!expectedErrors.includes(e.message)) {
+					throw e;
+				}
+			});
+		},
+		abandon: async ({ channel }, { taskId }) => {
+			channel.abandon(taskId);
+		},
+		subscribe: async ({ channel }, { taskId }) => {
+			channel.subscribeToTask(taskId);
+		},
+		complete: async ({ channel }, { taskId }) => {
+			channel.complete(taskId);
+		},
+	});
+
+	return withLogging(reducer);
 }
 
-function assertConsistent(clients: Client[]) {
-    const connectedClients = clients.filter((client) => client.containerRuntime.connected);
-    if (connectedClients.length < 2) {
-        return;
-    }
-    const first = connectedClients[0].taskManager;
-    for (const { taskManager: other } of connectedClients.slice(1)) {
-        assertEqualQueues((first as any).taskQueues, (other as any).taskQueues);
-    }
+function assertEqualTaskManagers(a: ITaskManager, b: ITaskManager) {
+	const queue1 = (a as any).taskQueues;
+	const queue2 = (b as any).taskQueues;
+	assert(queue1.size === queue2.size, "The number of tasks queues are not the same");
+	for (const [key, val] of queue1) {
+		const testVal = queue2.get(key);
+		if (testVal === undefined) {
+			assert(val === undefined, "Task queues are not both undefined");
+			continue;
+		}
+		assert(testVal.length === val.length, "Task queues are not the same size");
+		if (testVal.length > 0) {
+			testVal.forEach((task: string, index: number) => {
+				assert(task === val[index], `Task queues are not identical`);
+			});
+		}
+	}
 }
 
-function runTaskManagerFuzz(
-    generator: Generator<Operation, FuzzTestState>,
-    initialState: FuzzTestState,
-    saveInfo?: SaveInfo,
-    loggingInfo?: LoggingInfo,
-): void {
-    // Small wrapper to avoid having to return the same state repeatedly; all operations in this suite mutate.
-    // Also a reasonable point to inject logging of incremental state.
-    const statefully =
-        <T>(statefulReducer: (state: FuzzTestState, operation: T) => void): Reducer<T, FuzzTestState> =>
-            (state, operation) => {
-                if (loggingInfo !== undefined && (operation as any).taskId === loggingInfo.taskId) {
-                    logCurrentState(state, loggingInfo);
-                    console.log("-".repeat(20));
-                    console.log("Next operation:", JSON.stringify(operation, undefined, 4));
-                }
-                statefulReducer(state, operation);
-                return state;
-            };
+describe("TaskManager fuzz testing", () => {
+	const model: DDSFuzzModel<TaskManagerFactory, Operation, FuzzTestState> = {
+		workloadName: "default configuration",
+		generatorFactory: () => take(100, makeOperationGenerator()),
+		reducer:
+			// makeReducer supports a param for logging output which tracks the provided intervalId over time:
+			// { taskManagerNames: ["A", "B", "C"], taskId: "" },
+			makeReducer(),
+		validateConsistency: assertEqualTaskManagers,
+		factory: new TaskManagerFactory(),
+	};
 
-    performFuzzActions(
-        generator,
-        {
-            volunteer: statefully(({ clients }, { taskManagerName, taskId }) => {
-                const taskManager = findTaskManager(clients, taskManagerName);
-                assert(taskManager);
-                taskManager.volunteerForTask(taskId).catch((e: Error) => {
-                    // We expect an error to be thrown if we are disconnected while volunteering
-                    const expectedErrors = [
-                        "Disconnected before acquiring task assignment",
-                        "Abandoned before acquiring task assignment",
-                    ];
-                    if (!expectedErrors.includes(e.message)) {
-                        throw e;
-                    }
-                });
-            }),
-            abandon: statefully(({ clients }, { taskManagerName, taskId }) => {
-                const taskManager = findTaskManager(clients, taskManagerName);
-                assert(taskManager);
-                taskManager.abandon(taskId);
-            }),
-            subscribe: statefully(({ clients }, { taskManagerName, taskId }) => {
-                const taskManager = findTaskManager(clients, taskManagerName);
-                assert(taskManager);
-                taskManager.subscribeToTask(taskId);
-            }),
-            complete: statefully(({ clients }, { taskManagerName, taskId }) => {
-                const taskManager = findTaskManager(clients, taskManagerName);
-                assert(taskManager);
-                taskManager.complete(taskId);
-            }),
-            synchronize: statefully(({ containerRuntimeFactory, clients }) => {
-                containerRuntimeFactory.processAllMessages();
-                assertConsistent(clients);
-            }),
-            changeConnectionState: statefully(({ clients }, { taskManagerName, connected }) => {
-                const containerRuntime = findRuntime(clients, taskManagerName);
-                assert(containerRuntime);
-                containerRuntime.connected = connected;
-            }),
-        },
-        initialState,
-        saveInfo,
-    );
-}
+	createDDSFuzzSuite(model, {
+		validationStrategy: { type: "fixedInterval", interval: defaultOptions.validateInterval },
+		// AB#3985: TaskManager has some eventual consistency issue with reconnect enabled.
+		// To make this configuration similar to pre-generic DDS fuzz harness refactor, this constant
+		// should be 0.2.
+		// Leaving the tests enabled without reconnect on mimics previous behavior (and provides more coverage
+		// than skipping them)
+		reconnectProbability: 0,
+		clientJoinOptions: { maxNumberOfClients: 6, clientAddProbability: 0.05 },
+		defaultTestCount: defaultOptions.testCount,
+		saveFailures: { directory: path.join(__dirname, "../../src/test/results") },
+		// Uncomment this line to replay a specific seed:
+		// replay: 0,
+		// This can be useful for quickly minimizing failure json while attempting to root-cause a failure.
+	});
+});
 
-const directory = path.join(__dirname, "../../src/test/results");
+describe("TaskManager fuzz testing with rebasing", () => {
+	const model: DDSFuzzModel<TaskManagerFactory, Operation, FuzzTestState> = {
+		workloadName: "default configuration and rebasing",
+		generatorFactory: () => take(100, makeOperationGenerator()),
+		reducer:
+			// makeReducer supports a param for logging output which tracks the provided intervalId over time:
+			// { taskManagerNames: ["A", "B", "C"], taskId: "" },
+			makeReducer(),
+		validateConsistency: assertEqualTaskManagers,
+		factory: new TaskManagerFactory(),
+	};
 
-function getPath(seed: number): string {
-    return path.join(directory, `${seed}.json`);
-}
-
-const describeFuzz = createFuzzDescribe({ defaultTestCount: defaultOptions.testCount });
-
-describeFuzz("TaskManager fuzz testing", ({ testCount }) => {
-    before(() => {
-        if (!existsSync(directory)) {
-            mkdirSync(directory, { recursive: true });
-        }
-    });
-
-    function runTests(seed: number, generator: Generator<Operation, FuzzTestState>, loggingInfo?: LoggingInfo): void {
-        it(`with default config, seed ${seed}`, async () => {
-            const numClients = 3;
-
-            const containerRuntimeFactory = new MockContainerRuntimeFactoryForReconnection();
-            const clients = Array.from({ length: numClients }, (_, index) => {
-                const dataStoreRuntime = new MockFluidDataStoreRuntime();
-                const containerRuntime = containerRuntimeFactory.createContainerRuntime(dataStoreRuntime);
-                const services: IChannelServices = {
-                    deltaConnection: containerRuntime.createDeltaConnection(),
-                    objectStorage: new MockStorage(),
-                };
-                const taskManager = new TaskManager(
-                    `taskManager${index}`,
-                    dataStoreRuntime,
-                    TaskManagerFactory.Attributes,
-                );
-                taskManager.initializeLocal();
-                taskManager.connect(services);
-                return { containerRuntime, taskManager };
-            });
-
-            const random = makeRandom(seed);
-
-            const taskIdPool = Array.from({ length: defaultOptions.taskPoolSize },
-                () => random.string(defaultOptions.taskStringLength));
-
-            const initialState: FuzzTestState = {
-                containerRuntimeFactory,
-                clients,
-                taskIdPool,
-                random,
-            };
-
-            runTaskManagerFuzz(
-                generator,
-                initialState,
-                { saveOnFailure: true, filepath: getPath(seed) },
-                loggingInfo,
-            );
-        });
-    }
-
-    function replayTestFromFailureFile(seed: number, loggingInfo?: LoggingInfo) {
-        const filepath = getPath(seed);
-        let operations: Operation[];
-        try {
-            operations = JSON.parse(readFileSync(filepath).toString());
-        } catch (err: any) {
-            // Mocha executes skipped suite creation blocks, but whoever's running this suite only cares if
-            // the containing block isn't skipped. Report the original error to them from inside a test.
-            if (err.message.includes("ENOENT") === true) {
-                it(`with default config, seed ${seed}`, () => {
-                    throw err;
-                });
-                return;
-            }
-            throw err;
-        }
-
-        const generator = generatorFromArray(operations);
-        runTests(seed, generator, loggingInfo);
-    }
-
-    for (let i = 0; i < testCount; i++) {
-        const generator = take(defaultOptions.operations,
-            makeOperationGenerator({ validateInterval: defaultOptions.validateInterval }));
-        runTests(i, generator);
-    }
-
-    // Change this seed and unskip the block to replay the actions from JSON on disk.
-    // This can be useful for quickly minimizing failure json while attempting to root-cause a failure.
-    describe.skip("replay specific seed", () => {
-        const seedToReplay = 0;
-        replayTestFromFailureFile(
-            seedToReplay,
-            // The following line can be uncommented for useful logging output which tracks the provided
-            // Task managers over time for a specific taskId.
-            // { taskManagerNames: ["taskManager0", "taskManager1", "taskManager2"], taskId: "" },
-        );
-    });
+	createDDSFuzzSuite(model, {
+		validationStrategy: { type: "fixedInterval", interval: defaultOptions.validateInterval },
+		// AB#5185: enabling rebasing indicates some unknown eventual consistency issue
+		skip: [0, 2, 6],
+		rebaseProbability: 0.15,
+		containerRuntimeOptions: {
+			flushMode: FlushMode.TurnBased,
+			enableGroupedBatching: true,
+		},
+		clientJoinOptions: { maxNumberOfClients: 6, clientAddProbability: 0.05 },
+		defaultTestCount: defaultOptions.testCount,
+		saveFailures: { directory: path.join(__dirname, "../../src/test/results") },
+		// AB#5341: enabling 'start from detached' within the fuzz harness demonstrates eventual consistency failures.
+		detachedStartOptions: {
+			enabled: false,
+			attachProbability: 0.2,
+		},
+		// Uncomment this line to replay a specific seed:
+		// replay: 0,
+		// This can be useful for quickly minimizing failure json while attempting to root-cause a failure.
+	});
 });

@@ -4,12 +4,10 @@
  */
 
 module.exports = {
-    "extends": [
-        require.resolve("@fluidframework/eslint-config-fluid"),
-        "prettier"
-    ],
-    "rules": {
-        "@typescript-eslint/strict-boolean-expressions": "off",
-        "import/no-nodejs-modules": "off",
-    }
-}
+	extends: [require.resolve("@fluidframework/eslint-config-fluid"), "prettier"],
+	rules: {
+		"@typescript-eslint/strict-boolean-expressions": "off",
+		"import/no-nodejs-modules": "off",
+		"unicorn/prefer-module": "off",
+	},
+};

@@ -23,7 +23,6 @@
         "eslint-comments",
         "import",
         "unicorn",
-        "react",
         "unused-imports",
         "tsdoc",
         "promise",
@@ -528,7 +527,7 @@
             "error"
         ],
         "import/no-deprecated": [
-            "off"
+            "error"
         ],
         "import/no-duplicates": [
             1

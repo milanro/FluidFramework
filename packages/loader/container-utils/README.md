@@ -1,5 +1,7 @@
 # @fluidframework/container-utils
 
-Contains various helper utilities available to both runtime & container layers
+**DEPRECATED: THE CONTENTS OF THIS PACKAGE HAVE BEEN MOVED TO OTHER LIBRARIES WITHIN THE FLUID FRAMEWORK.**
 
-See [GitHub](https://github.com/microsoft/FluidFramework) for more details on the Fluid Framework and packages within.
+**ALL REMAINING API MEMBERS HAVE BEEN DOCUMENTED WITH MIGRATION INSTRUCTIONS.**
+
+**THIS PACKAGE WILL RECEIVE NO FURTHER SUPPORT.**

@@ -1,8 +1,8 @@
-# testFunctionReturningInlineType
+## testFunctionReturningInlineType
 
 Test function that returns an inline type
 
-## Signature {#testfunctionreturninginlinetype-signature}
+### Signature {#testfunctionreturninginlinetype-signature}
 
 ```typescript
 export declare function testFunctionReturningInlineType(): {
@@ -11,8 +11,8 @@ export declare function testFunctionReturningInlineType(): {
 };
 ```
 
-## Returns {#testfunctionreturninginlinetype-returns}
+### Returns {#testfunctionreturninginlinetype-returns}
 
 An inline type
 
-<b>Return type:</b> { foo: number; bar: [TestEnum](docs/simple-suite-test/testenum-enum)<!-- -->; }
+**Return type:** {     foo: number;     bar: [TestEnum](docs/simple-suite-test/testenum-enum); }

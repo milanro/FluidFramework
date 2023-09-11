@@ -2,7 +2,26 @@
 
 The azure-client package provides a simple and powerful way to consume collaborative Fluid data with the Azure Fluid Relay service.
 
-See [GitHub](https://github.com/microsoft/FluidFramework) for more details on the Fluid Framework and packages within.
+<!-- AUTO-GENERATED-CONTENT:START (README_DEPENDENCY_GUIDELINES_SECTION:includeHeading=TRUE) -->
+
+<!-- prettier-ignore-start -->
+<!-- NOTE: This section is automatically generated using @fluid-tools/markdown-magic. Do not update these generated contents directly. -->
+
+## Using Fluid Framework libraries
+
+When taking a dependency on a Fluid Framework library, we recommend using a `^` (caret) version range, such as `^1.3.4`.
+While Fluid Framework libraries may use different ranges with interdependencies between other Fluid Framework libraries,
+library consumers should always prefer `^`.
+
+Note that when depending on a library version of the form `2.0.0-internal.x.y.z`, called the Fluid internal version scheme,
+you must use a `>= <` dependency range (such as `>=2.0.0-internal.x.y.z <2.0.0-internal.w.0.0` where `w` is `x+1`).
+Standard `^` and `~` ranges will not work as expected.
+See the [@fluid-tools/version-tools](https://github.com/microsoft/FluidFramework/blob/main/build-tools/packages/version-tools/README.md)
+package for more information including tools to convert between version schemes.
+
+<!-- prettier-ignore-end -->
+
+<!-- AUTO-GENERATED-CONTENT:END -->
 
 ## Using azure-client
 
@@ -35,11 +54,11 @@ import { AzureClient, AzureConnectionConfig } from "@fluidframework/azure-client
 import { InsecureTokenProvider } from "@fluidframework/test-client-utils";
 
 const clientProps = {
-    connection: {
-        type: "local",
-        tokenProvider: new InsecureTokenProvider("fooBar", { id: "123", name: "Test User" }),
-        endpoint: "http://localhost:7070",
-    },
+	connection: {
+		type: "local",
+		tokenProvider: new InsecureTokenProvider("fooBar", { id: "123", name: "Test User" }),
+		endpoint: "http://localhost:7070",
+	},
 };
 const azureClient = new AzureClient(clientProps);
 ```
@@ -52,18 +71,24 @@ When running against a live Azure Fluid Relay instance, we can use the same inte
 import { AzureClient, AzureConnectionConfig } from "@fluidframework/azure-client";
 
 const clientProps = {
-    connection: {
-        type: "remote",
-        tenantId: "YOUR-TENANT-ID-HERE",
-        tokenProvider: new AzureFunctionTokenProvider("AZURE-FUNCTION-URL" + "/api/GetAzureToken", {
-            userId: "test-user",
-            userName: "Test User",
-        }),
-        endpoint: "ENTER-SERVICE-DISCOVERY-URL-HERE",
-    },
+	connection: {
+		type: "remote",
+		tenantId: "YOUR-TENANT-ID-HERE",
+		tokenProvider: new AzureFunctionTokenProvider("AZURE-FUNCTION-URL" + "/api/GetAzureToken", {
+			userId: "test-user",
+			userName: "Test User",
+		}),
+		endpoint: "ENTER-SERVICE-DISCOVERY-URL-HERE",
+	},
 };
 const azureClient = new AzureClient(clientProps);
 ```
+
+### Experimental Features
+
+`AzureClient` supports the ability to instantiate with experimental features enabled.
+These features are experimental in nature and should **NOT** be used in production applications.
+To learn more, see [Experimental Features](https://fluidframework.com/docs/build/experimental-features/).
 
 ## Fluid Containers
 
@@ -79,12 +104,12 @@ See [`ContainerSchema`](./src/types.ts) in [`./src/types/ts`](./src/types.ts) fo
 
 ```typescript
 const schema = {
-    initialObjects: {
-        /* ... */
-    },
-    dynamicObjectTypes: [
-        /*...*/
-    ],
+	initialObjects: {
+		/* ... */
+	},
+	dynamicObjectTypes: [
+		/*...*/
+	],
 };
 const azureClient = new AzureClient(props);
 const { container, services } = await azureClient.createContainer(schema);
@@ -117,10 +142,10 @@ The most common way to use Fluid is through initial collaborative objects that a
 // Define the keys and types of the initial list of collaborative objects.
 // Here, we are using a SharedMap DDS on key "map1" and a SharedString on key "text1".
 const schema = {
-    initialObjects: {
-        map1: SharedMap,
-        text1: SharedString,
-    },
+	initialObjects: {
+		map1: SharedMap,
+		text1: SharedString,
+	},
 };
 
 // Fetch back the container that had been created earlier with the same ID and schema
@@ -143,10 +168,10 @@ Dynamic objects are loaded on-demand to optimize for data virtualization. To get
 
 ```typescript
 const schema = {
-    initialObjects: {
-        map1: SharedMap,
-    },
-    dynamicObjectTypes: [SharedString],
+	initialObjects: {
+		map1: SharedMap,
+	},
+	dynamicObjectTypes: [SharedString],
 };
 
 const { container, services } = await azureClient.getContainer("_unique-id_", schema);
@@ -168,8 +193,7 @@ const text1 = await map1.get("text1-unique-id").get();
 <!-- AUTO-GENERATED-CONTENT:START (README_CONTRIBUTION_GUIDELINES_SECTION:includeHeading=TRUE) -->
 
 <!-- prettier-ignore-start -->
-
-<!-- This section is automatically generated. To update it, make the appropriate changes to docs/md-magic.config.js or the embedded content, then run 'npm run build:md-magic' in the docs folder. -->
+<!-- NOTE: This section is automatically generated using @fluid-tools/markdown-magic. Do not update these generated contents directly. -->
 
 ## Contribution Guidelines
 
@@ -196,15 +220,16 @@ Use of Microsoft trademarks or logos in modified versions of this project must n
 <!-- AUTO-GENERATED-CONTENT:START (README_HELP_SECTION:includeHeading=TRUE) -->
 
 <!-- prettier-ignore-start -->
-
-<!-- This section is automatically generated. To update it, make the appropriate changes to docs/md-magic.config.js or the embedded content, then run 'npm run build:md-magic' in the docs folder. -->
+<!-- NOTE: This section is automatically generated using @fluid-tools/markdown-magic. Do not update these generated contents directly. -->
 
 ## Help
 
-Not finding what you're looking for in this README?
-Check out our [GitHub Wiki](https://github.com/microsoft/FluidFramework/wiki) or [fluidframework.com](https://fluidframework.com/docs/).
+Not finding what you're looking for in this README? Check out our [GitHub
+Wiki](https://github.com/microsoft/FluidFramework/wiki) or [fluidframework.com](https://fluidframework.com/docs/).
 
-Still not finding what you're looking for? Please [file an issue](https://github.com/microsoft/FluidFramework/wiki/Submitting-Bugs-and-Feature-Requests).
+Still not finding what you're looking for? Please [file an
+issue](https://github.com/microsoft/FluidFramework/wiki/Submitting-Bugs-and-Feature-Requests).
+
 Thank you!
 
 <!-- prettier-ignore-end -->
@@ -214,13 +239,15 @@ Thank you!
 <!-- AUTO-GENERATED-CONTENT:START (README_TRADEMARK_SECTION:includeHeading=TRUE) -->
 
 <!-- prettier-ignore-start -->
-
-<!-- This section is automatically generated. To update it, make the appropriate changes to docs/md-magic.config.js or the embedded content, then run 'npm run build:md-magic' in the docs folder. -->
+<!-- NOTE: This section is automatically generated using @fluid-tools/markdown-magic. Do not update these generated contents directly. -->
 
 ## Trademark
 
 This project may contain Microsoft trademarks or logos for Microsoft projects, products, or services.
-Use of these trademarks or logos must follow Microsoft's [Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
+
+Use of these trademarks or logos must follow Microsoft's [Trademark & Brand
+Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
+
 Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
 
 <!-- prettier-ignore-end -->
