@@ -5,106 +5,132 @@
 
 import { Deferred } from "@fluidframework/common-utils";
 import {
-    MongoManager,
-    IRunner,
-    ISecretManager,
-    IWebServerFactory,
-    IWebServer,
+	IRunner,
+	ISecretManager,
+	IWebServerFactory,
+	IWebServer,
+	ICache,
+	ICollection,
 } from "@fluidframework/server-services-core";
-import { Lumberjack } from "@fluidframework/server-services-telemetry";
+import { LumberEventName, Lumberjack } from "@fluidframework/server-services-telemetry";
+import { Provider } from "nconf";
 import * as winston from "winston";
+import { runnerHttpServerStop } from "../utils";
 import * as app from "./app";
+import { ITenantDocument } from "./tenantManager";
 
 export class RiddlerRunner implements IRunner {
-    private server: IWebServer;
-    private runningDeferred: Deferred<void>;
+	private server: IWebServer;
+	private runningDeferred: Deferred<void>;
+	private stopped: boolean = false;
+	private readonly runnerMetric = Lumberjack.newLumberMetric(LumberEventName.RiddlerRunner);
 
-    constructor(
-        private readonly serverFactory: IWebServerFactory,
-        private readonly collectionName: string,
-        private readonly port: string | number,
-        private readonly mongoManager: MongoManager,
-        private readonly loggerFormat: string,
-        private readonly baseOrdererUrl: string,
-        private readonly defaultHistorianUrl: string,
-        private readonly defaultInternalHistorianUrl: string,
-        private readonly secretManager: ISecretManager,
-    ) {
-    }
+	constructor(
+		private readonly serverFactory: IWebServerFactory,
+		private readonly tenantsCollection: ICollection<ITenantDocument>,
+		private readonly port: string | number,
+		private readonly loggerFormat: string,
+		private readonly baseOrdererUrl: string,
+		private readonly defaultHistorianUrl: string,
+		private readonly defaultInternalHistorianUrl: string,
+		private readonly secretManager: ISecretManager,
+		private readonly fetchTenantKeyMetricInterval: number,
+		private readonly riddlerStorageRequestMetricInterval: number,
+		private readonly cache?: ICache,
+		private readonly config?: Provider,
+	) {}
 
-    // eslint-disable-next-line @typescript-eslint/promise-function-async
-    public start(): Promise<void> {
-        this.runningDeferred = new Deferred<void>();
+	// eslint-disable-next-line @typescript-eslint/promise-function-async
+	public start(): Promise<void> {
+		this.runningDeferred = new Deferred<void>();
 
-        // Create the HTTP server and attach alfred to it
-        const riddler = app.create(
-            this.collectionName,
-            this.mongoManager,
-            this.loggerFormat,
-            this.baseOrdererUrl,
-            this.defaultHistorianUrl,
-            this.defaultInternalHistorianUrl,
-            this.secretManager);
-        riddler.set("port", this.port);
+		// Create the HTTP server and attach alfred to it
+		const riddler = app.create(
+			this.tenantsCollection,
+			this.loggerFormat,
+			this.baseOrdererUrl,
+			this.defaultHistorianUrl,
+			this.defaultInternalHistorianUrl,
+			this.secretManager,
+			this.fetchTenantKeyMetricInterval,
+			this.riddlerStorageRequestMetricInterval,
+			this.cache,
+		);
+		riddler.set("port", this.port);
 
-        this.server = this.serverFactory.create(riddler);
-        const httpServer = this.server.httpServer;
+		this.server = this.serverFactory.create(riddler);
+		const httpServer = this.server.httpServer;
 
-        httpServer.listen(this.port);
-        httpServer.on("error", (error) => this.onError(error));
-        httpServer.on("listening", () => this.onListening());
+		httpServer.listen(this.port);
+		httpServer.on("error", (error) => this.onError(error));
+		httpServer.on("listening", () => this.onListening());
 
-        return this.runningDeferred.promise;
-    }
+		this.stopped = false;
 
-    // eslint-disable-next-line @typescript-eslint/promise-function-async
-    public stop(): Promise<void> {
-        // Close the underlying server and then resolve the runner once closed
-        this.server.close().then(
-            () => {
-                this.runningDeferred.resolve();
-            },
-            (error) => {
-                this.runningDeferred.reject(error);
-            },
-        );
-        return this.runningDeferred.promise;
-    }
+		return this.runningDeferred.promise;
+	}
 
-    /**
-     * Event listener for HTTP server "error" event.
-     */
-    private onError(error) {
-        if (error.syscall !== "listen") {
-            throw error;
-        }
+	// eslint-disable-next-line @typescript-eslint/promise-function-async
+	public async stop(caller?: string, uncaughtException?: any): Promise<void> {
+		if (this.stopped) {
+			Lumberjack.info("RiddlerRunner.stop already called, returning early.");
+			return;
+		}
 
-        const bind = typeof this.port === "string"
-            ? `Pipe ${this.port}`
-            : `Port ${this.port}`;
+		this.stopped = true;
+		Lumberjack.info("RiddlerRunner.stop starting.");
 
-        // Handle specific listen errors with friendly messages
-        switch (error.code) {
-            case "EACCES":
-                this.runningDeferred.reject(`${bind} requires elevated privileges`);
-                break;
-            case "EADDRINUSE":
-                this.runningDeferred.reject(`${bind} is already in use`);
-                break;
-            default:
-                throw error;
-        }
-    }
+		const runnerServerCloseTimeoutMs =
+			this.config?.get("shared:runnerServerCloseTimeoutMs") ?? 30000;
 
-    /**
-     * Event listener for HTTP server "listening" event.
-     */
-    private onListening() {
-        const addr = this.server.httpServer.address();
-        const bind = typeof addr === "string"
-            ? `pipe ${addr}`
-            : `port ${addr.port}`;
-        winston.info(`Listening on ${bind}`);
-        Lumberjack.info(`Listening on ${bind}`);
-    }
+		await runnerHttpServerStop(
+			this.server,
+			this.runningDeferred,
+			runnerServerCloseTimeoutMs,
+			this.runnerMetric,
+			caller,
+			uncaughtException,
+		);
+	}
+
+	/**
+	 * Event listener for HTTP server "error" event.
+	 */
+	private onError(error) {
+		if (!this.runnerMetric.isCompleted()) {
+			this.runnerMetric.error(
+				`${this.runnerMetric.eventName} encountered an error in http server`,
+				error,
+			);
+		}
+		if (error.syscall !== "listen") {
+			throw error;
+		}
+
+		const bind = typeof this.port === "string" ? `Pipe ${this.port}` : `Port ${this.port}`;
+
+		// Handle specific listen errors with friendly messages
+		switch (error.code) {
+			case "EACCES":
+				this.runningDeferred?.reject(`${bind} requires elevated privileges`);
+				this.runningDeferred = undefined;
+				break;
+			case "EADDRINUSE":
+				this.runningDeferred?.reject(`${bind} is already in use`);
+				this.runningDeferred = undefined;
+				break;
+			default:
+				throw error;
+		}
+	}
+
+	/**
+	 * Event listener for HTTP server "listening" event.
+	 */
+	private onListening() {
+		const addr = this.server.httpServer.address();
+		const bind = typeof addr === "string" ? `pipe ${addr}` : `port ${addr.port}`;
+		winston.info(`Listening on ${bind}`);
+		Lumberjack.info(`Listening on ${bind}`);
+	}
 }

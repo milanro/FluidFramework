@@ -12,9 +12,9 @@
  */
 
 export {
-    AttachState,
-    ContainerErrorType,
-    ICriticalContainerError,
+	AttachState,
+	ContainerErrorType,
+	ICriticalContainerError,
 } from "@fluidframework/container-definitions";
 export { DriverErrorType } from "@fluidframework/driver-definitions";
 export { ConnectionState } from "@fluidframework/container-loader";
@@ -35,8 +35,6 @@ export {
 	LoadableObjectCtor,
 	LoadableObjectRecord,
 	MemberChangedListener,
-	RootDataObject,
-	RootDataObjectProps,
 	ServiceAudience,
 	SharedObjectClass,
 } from "@fluidframework/fluid-static";
@@ -70,7 +68,6 @@ export {
 	SharedMap,
 } from "@fluidframework/map";
 export {
-	CompressedSerializedInterval,
 	DeserializeCallback,
 	getTextAndMarkers,
 	IInterval,
@@ -79,16 +76,13 @@ export {
 	IJSONRunSegment,
 	IMapMessageLocalMetadata,
 	Interval,
-	IntervalCollection,
-	IntervalCollectionIterator,
-	IntervalConflictResolver,
+	IIntervalCollection,
 	IntervalLocator,
 	intervalLocatorFromEndpoint,
 	IntervalType,
 	ISequenceDeltaRange,
 	ISerializableInterval,
 	ISerializedInterval,
-	ISerializedIntervalCollectionV2,
 	ISharedIntervalCollection,
 	ISharedSegmentSequenceEvents,
 	ISharedString,

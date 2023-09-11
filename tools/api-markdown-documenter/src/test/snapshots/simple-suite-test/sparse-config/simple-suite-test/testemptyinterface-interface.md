@@ -1,9 +1,9 @@
-# TestEmptyInterface
+## TestEmptyInterface
 
 An empty interface
 
-## Signature {#testemptyinterface-signature}
+### Signature {#testemptyinterface-signature}
 
 ```typescript
-export interface TestEmptyInterface 
+export interface TestEmptyInterface
 ```

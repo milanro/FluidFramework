@@ -3,161 +3,177 @@
  * Licensed under the MIT License.
  */
 
-import { ITelemetryLogger } from "@fluidframework/common-definitions";
-import { UsageError } from "@fluidframework/driver-utils";
-import { ChildLogger } from "@fluidframework/telemetry-utils";
 import { ICompressionRuntimeOptions } from "../containerRuntime";
 import { BatchMessage, IBatch, IBatchCheckpoint } from "./definitions";
 
 export interface IBatchManagerOptions {
-    readonly enableOpReentryCheck?: boolean;
-    readonly hardLimit: number;
-    readonly softLimit?: number;
-    readonly compressionOptions?: ICompressionRuntimeOptions;
+	readonly hardLimit: number;
+	readonly softLimit?: number;
+	readonly compressionOptions?: ICompressionRuntimeOptions;
 }
+
+export interface BatchSequenceNumbers {
+	referenceSequenceNumber?: number;
+	clientSequenceNumber?: number;
+}
+
+/**
+ * Estimated size of the stringification overhead for an op accumulated
+ * from runtime to loader to the service.
+ */
+const opOverhead = 200;
 
 /**
  * Helper class that manages partial batch & rollback.
  */
 export class BatchManager {
-    private readonly logger;
-    private pendingBatch: BatchMessage[] = [];
-    private batchContentSize = 0;
-    /**
-    * Track the number of ops which were detected to have a mismatched
-    * reference sequence number, in order to self-throttle the telemetry events.
-    *
-    * This should be removed as part of ADO:2322
-    */
-    private readonly maxMismatchedOpsToReport = 5;
-    private mismatchedOpsReported = 0;
+	private pendingBatch: BatchMessage[] = [];
+	private batchContentSize = 0;
+	private hasReentrantOps = false;
 
+	public get length() {
+		return this.pendingBatch.length;
+	}
+	public get contentSizeInBytes() {
+		return this.batchContentSize;
+	}
 
-    public get length() { return this.pendingBatch.length; }
-    public get contentSizeInBytes() { return this.batchContentSize; }
+	public get sequenceNumbers(): BatchSequenceNumbers {
+		return {
+			referenceSequenceNumber: this.referenceSequenceNumber,
+			clientSequenceNumber: this.clientSequenceNumber,
+		};
+	}
 
-    constructor(
-        public readonly options: IBatchManagerOptions,
-        logger: ITelemetryLogger,
-    ) {
-        this.logger = ChildLogger.create(logger, "BatchManager");
-    }
+	private get referenceSequenceNumber(): number | undefined {
+		return this.pendingBatch.length === 0
+			? undefined
+			: this.pendingBatch[this.pendingBatch.length - 1].referenceSequenceNumber;
+	}
 
-    public push(message: BatchMessage): boolean {
-        this.checkReferenceSequenceNumber(message);
+	private clientSequenceNumber: number | undefined;
 
-        const contentSize = this.batchContentSize + (message.contents?.length ?? 0);
-        const opCount = this.pendingBatch.length;
+	constructor(public readonly options: IBatchManagerOptions) {}
 
-        // Attempt to estimate batch size, aka socket message size.
-        // Each op has pretty large envelope, estimating to be 200 bytes.
-        // Also content will be strigified, and that adds a lot of overhead due to a lot of escape characters.
-        // Not taking it into account, as compression work should help there - compressed payload will be
-        // initially stored as base64, and that requires only 2 extra escape characters.
-        const socketMessageSize = contentSize + 200 * opCount;
+	public push(
+		message: BatchMessage,
+		reentrant: boolean,
+		currentClientSequenceNumber?: number,
+	): boolean {
+		const contentSize = this.batchContentSize + (message.contents?.length ?? 0);
+		const opCount = this.pendingBatch.length;
+		this.hasReentrantOps = this.hasReentrantOps || reentrant;
 
-        // If we were provided soft limit, check for exceeding it.
-        // But only if we have any ops, as the intention here is to flush existing ops (on exceeding this limit)
-        // and start over. That's not an option if we have no ops.
-        // If compression is enabled, the soft and hard limit are ignored and the message will be pushed anyways.
-        // Cases where the message is still too large will be handled by the maxConsecutiveReconnects path.
-        if (this.options.softLimit !== undefined
-            && this.length > 0
-            && socketMessageSize >= this.options.softLimit) {
-            return false;
-        }
+		// Attempt to estimate batch size, aka socket message size.
+		// Each op has pretty large envelope, estimating to be 200 bytes.
+		// Also content will be strigified, and that adds a lot of overhead due to a lot of escape characters.
+		// Not taking it into account, as compression work should help there - compressed payload will be
+		// initially stored as base64, and that requires only 2 extra escape characters.
+		const socketMessageSize = contentSize + opOverhead * opCount;
 
-        if (socketMessageSize >= this.options.hardLimit) {
-            return false;
-        }
+		// If we were provided soft limit, check for exceeding it.
+		// But only if we have any ops, as the intention here is to flush existing ops (on exceeding this limit)
+		// and start over. That's not an option if we have no ops.
+		// If compression is enabled, the soft and hard limit are ignored and the message will be pushed anyways.
+		// Cases where the message is still too large will be handled by the maxConsecutiveReconnects path.
+		if (
+			this.options.softLimit !== undefined &&
+			this.length > 0 &&
+			socketMessageSize >= this.options.softLimit
+		) {
+			return false;
+		}
 
-        this.batchContentSize = contentSize;
-        this.pendingBatch.push(message);
-        return true;
-    }
+		if (socketMessageSize >= this.options.hardLimit) {
+			return false;
+		}
 
-    public get empty() { return this.pendingBatch.length === 0; }
+		if (this.pendingBatch.length === 0) {
+			this.clientSequenceNumber = currentClientSequenceNumber;
+		}
 
-    public popBatch(): IBatch {
-        const batch: IBatch = {
-            content: this.pendingBatch,
-            contentSizeInBytes: this.batchContentSize,
-        };
+		this.batchContentSize = contentSize;
+		this.pendingBatch.push(message);
+		return true;
+	}
 
-        this.pendingBatch = [];
-        this.batchContentSize = 0;
+	public get empty() {
+		return this.pendingBatch.length === 0;
+	}
 
-        return addBatchMetadata(batch);
-    }
+	public popBatch(): IBatch {
+		const batch: IBatch = {
+			content: this.pendingBatch,
+			contentSizeInBytes: this.batchContentSize,
+			referenceSequenceNumber: this.referenceSequenceNumber,
+			hasReentrantOps: this.hasReentrantOps,
+		};
 
-    /**
-     * Capture the pending state at this point
-     */
-    public checkpoint(): IBatchCheckpoint {
-        const startPoint = this.pendingBatch.length;
-        return {
-            rollback: (process: (message: BatchMessage) => void) => {
-                for (let i = this.pendingBatch.length; i > startPoint;) {
-                    i--;
-                    const message = this.pendingBatch[i];
-                    this.batchContentSize -= message.contents?.length ?? 0;
-                    process(message);
-                }
+		this.pendingBatch = [];
+		this.batchContentSize = 0;
+		this.clientSequenceNumber = undefined;
+		this.hasReentrantOps = false;
 
-                this.pendingBatch.length = startPoint;
-            },
-        };
-    }
+		return addBatchMetadata(batch);
+	}
 
-    private checkReferenceSequenceNumber(message: BatchMessage) {
-        if (this.pendingBatch.length === 0 || message.referenceSequenceNumber === this.pendingBatch[0].referenceSequenceNumber) {
-            // The reference sequence numbers are stable
-            return;
-        }
+	/**
+	 * Capture the pending state at this point
+	 */
+	public checkpoint(): IBatchCheckpoint {
+		const startPoint = this.pendingBatch.length;
+		return {
+			rollback: (process: (message: BatchMessage) => void) => {
+				for (let i = this.pendingBatch.length; i > startPoint; ) {
+					i--;
+					const message = this.pendingBatch[i];
+					this.batchContentSize -= message.contents?.length ?? 0;
+					process(message);
+				}
 
-        const telemetryProperties = {
-            referenceSequenceNumber: this.pendingBatch[0].referenceSequenceNumber,
-            messageReferenceSequenceNumber: message.referenceSequenceNumber,
-            type: message.deserializedContent.type,
-            length: this.pendingBatch.length,
-            enableOpReentryCheck: this.options.enableOpReentryCheck === true,
-        };
-        const error = new UsageError("Submission of an out of order message");
-        const eventName = "ReferenceSequenceNumberMismatch";
-
-        if (this.options.enableOpReentryCheck === true) {
-            this.logger.sendErrorEvent(
-                { eventName, ...telemetryProperties },
-                error,
-            );
-            throw error;
-        }
-
-        if (++this.mismatchedOpsReported <= this.maxMismatchedOpsToReport) {
-            this.logger.sendErrorEvent(
-                {
-                    eventName,
-                    ...telemetryProperties,
-                    ops: this.mismatchedOpsReported,
-                    maxOps: this.maxMismatchedOpsToReport,
-                },
-                error,
-            );
-        }
-    }
+				this.pendingBatch.length = startPoint;
+			},
+		};
+	}
 }
 
 const addBatchMetadata = (batch: IBatch): IBatch => {
-    if (batch.content.length > 1) {
-        batch.content[0].metadata = {
-            ...batch.content[0].metadata,
-            batch: true
-        };
-        batch.content[batch.content.length - 1].metadata = {
-            ...batch.content[batch.content.length - 1].metadata,
-            batch: false
-        };
-    }
+	if (batch.content.length > 1) {
+		batch.content[0].metadata = {
+			...batch.content[0].metadata,
+			batch: true,
+		};
+		batch.content[batch.content.length - 1].metadata = {
+			...batch.content[batch.content.length - 1].metadata,
+			batch: false,
+		};
+	}
 
-    return batch;
+	return batch;
+};
+
+/**
+ * Estimates the real size in bytes on the socket for a given batch. It assumes that
+ * the envelope size (and the size of an empty op) is 200 bytes, taking into account
+ * extra overhead from stringification.
+ *
+ * @param batch - the batch to inspect
+ * @returns An estimate of the payload size in bytes which will be produced when the batch is sent over the wire
+ */
+export const estimateSocketSize = (batch: IBatch): number => {
+	return batch.contentSizeInBytes + opOverhead * batch.content.length;
+};
+
+export const sequenceNumbersMatch = (
+	seqNums: BatchSequenceNumbers,
+	otherSeqNums: BatchSequenceNumbers,
+): boolean => {
+	return (
+		(seqNums.referenceSequenceNumber === undefined ||
+			otherSeqNums.referenceSequenceNumber === undefined ||
+			seqNums.referenceSequenceNumber === otherSeqNums.referenceSequenceNumber) &&
+		(seqNums.clientSequenceNumber === undefined ||
+			otherSeqNums.clientSequenceNumber === undefined ||
+			seqNums.clientSequenceNumber === otherSeqNums.clientSequenceNumber)
+	);
 };

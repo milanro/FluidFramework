@@ -1,13 +1,12 @@
-# testConstWithEmptyDeprecatedBlock
+## testConstWithEmptyDeprecatedBlock
 
-> <b>\[Warning\]: Deprecated</b>
-> 
+> **\[Warning\]: Deprecated**
 > 
 > 
 
 I have a `@deprecated` tag with an empty comment block.
 
-## Signature {#testconstwithemptydeprecatedblock-signature}
+### Signature {#testconstwithemptydeprecatedblock-signature}
 
 ```typescript
 testConstWithEmptyDeprecatedBlock = "I have a `@deprecated` tag with an empty comment block."
