@@ -1,0 +1,117 @@
+[
+  {
+    "annotation": {
+      "description": "Property"
+    },
+    "properties": [
+      {
+        "id": "name",
+        "typeid": "String"
+      }
+    ],
+    "typeid": "hxgn:Prop-1.0.0"
+  },
+  {
+    "inherits": ["hxgn:Prop-1.0.0"],
+    "properties": [
+      {
+        "id": "path",
+        "typeid": "String"
+      }
+    ],
+    "typeid": "hxgn:RefProp-1.0.0"
+  },
+  {
+    "annotation": {
+      "description": "Cell Data"
+    },
+    "properties": [
+      {
+        "id": "hvalue",
+        "typeid": "Int32"
+      },
+      {
+        "id": "nextCell",
+        "typeid": "Reference<hxgn:Cell-1.0.0>",
+        "optional": true
+      }
+    ],
+    "typeid": "hxgn:Cell-1.0.0"
+  },
+  {
+    "inherits": ["hxgn:Cell-1.0.0"],
+    "properties": [
+      {
+        "id": "red",
+        "typeid": "Int32"
+      }
+    ],
+    "typeid": "hxgn:RedCell-1.0.0"
+  },
+  {
+    "inherits": ["hxgn:Prop-1.0.0"],
+    "properties": [
+      {
+        "id": "hvalue",
+        "typeid": "String"
+      }
+    ],
+    "typeid": "hxgn:AnotherStringProp-1.0.0"
+  },
+  {
+    "annotation": {
+      "description": "Row Data"
+    },
+    "properties": [
+      {
+        "id": "cells",
+        "typeid": "hxgn:Cell-1.0.0",
+        "context": "array"
+      },
+      {
+        "id": "optCell",
+        "typeid": "hxgn:Cell-1.0.0",
+        "optional": true
+      }
+    ],
+    "typeid": "hxgn:Row-1.0.0"
+  },
+  {
+    "inherits": ["hxgn:Prop-1.0.0"],
+    "properties": [
+      {
+        "id": "hvalue",
+        "typeid": "String"
+      }
+    ],
+    "typeid": "hxgn:StringProp-1.0.0"
+  },
+  {
+    "inherits": ["hxgn:Cell-1.0.0"],
+    "properties": [
+      {
+        "id": "blue",
+        "typeid": "Int32"
+      }
+    ],
+    "typeid": "hxgn:BlueCell-1.0.0"
+  },
+  {
+    "annotation": {
+      "description": "Table Data"
+    },
+    "properties": [
+      {
+        "id": "rows",
+        "typeid": "hxgn:Row-1.0.0",
+        "context": "array"
+      },
+      {
+        "id": "props",
+        "typeid": "hxgn:Prop-1.0.0",
+        "context": "map"
+      }
+    ],
+    "typeid": "hxgn:Table-1.0.0"
+  }
+]
